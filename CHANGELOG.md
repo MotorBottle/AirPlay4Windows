@@ -3,6 +3,32 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.6.2] - 2026-11-11
+
+**中文**
+
+### 修改
+
+- 退出改为电源图标，移除主面板的系统声音标签。
+- 设置菜单展开期间保留面板。
+
+### 修复
+
+- 设置滑块窗口明确显示，关闭后恢复面板操作。
+- 设置期间阻止重复打开面板。
+
+**English**
+
+### Changed
+
+- Use a power icon to quit and remove the system-audio footer label.
+- Keep the panel visible while its settings menu is open.
+
+### Fixed
+
+- Explicitly show slider dialogs and restore panel interaction on close.
+- Prevent panel reentry while settings are open.
+
 ## [1.6.1] - 2026-11-11
 
 **中文**

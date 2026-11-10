@@ -531,7 +531,6 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (st->fSmall) DeleteObject(st->fSmall);
                 st->fValue = st->fGrade = st->fSmall = nullptr;
             }
-            PostQuitMessage(0);
             return 0;
 
         default:
@@ -587,15 +586,22 @@ int showSliderDialog(const SliderDialogSpec& spec, int currentValue) {
     if (!hwnd) return -1;
 
     darkmode::applyToWindow(hwnd, darkmode::isDark());
+    ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
     SetForegroundWindow(hwnd);
     SetFocus(hwnd);
 
     MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
-        if (msg.message == WM_QUIT) break;
+    while (IsWindow(hwnd)) {
+        const BOOL received = GetMessageW(&msg, nullptr, 0, 0);
+        if (received <= 0) {
+            if (received == 0) PostQuitMessage(static_cast<int>(msg.wParam));
+            break;
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    if (IsWindow(hwnd)) DestroyWindow(hwnd);
 
     return st.ok ? st.value : -1;
 }

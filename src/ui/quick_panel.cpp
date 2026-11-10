@@ -108,9 +108,7 @@ void paint(Panel& p, HDC dc) {
     Pen line(Color(255,57,60,65));g.DrawLine(&line,0.0f,foot,440.0f,foot);
     rounded(g,{22,foot+16,104,32},6,Color(255,49,52,56),Color(255,65,69,74));
     label(g,i18n::trw("延迟")+L" "+std::to_wstring(p.status.latency)+L" ms",{22,foot+16,104,32},12,kText,false,StringAlignmentCenter);
-    label(g,i18n::trw("系统声音"),{142,foot+16,80,32},12,kMuted);
-    rounded(g,{238,foot+16,66,32},6,Color(255,49,52,56),Color(255,65,69,74));
-    label(g,i18n::trw("退出"),{238,foot+16,66,32},12,kText,false,StringAlignmentCenter);
+    glyph(g,0xE7E8,{274,foot+16,36,32},18,kMuted);
     glyph(g,0xE72C,{326,foot+16,36,32},18,kMuted);
     glyph(g,0xE713,{378,foot+16,36,32},19,kText);
     Graphics screen(dc);screen.DrawImage(&buffer,0,0);
@@ -149,7 +147,7 @@ LRESULT CALLBACK panelProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
         }
         else if(y>=p->height-60) {
             if(x<132)p->action=106;
-            else if(x>=238 && x<=304)p->action=104;
+            else if(x>=270 && x<315)p->action=104;
             else if(x>=315 && x<372)p->action=113;
             else if(x>=372)p->action=10902;
         } else if(p->devices.empty() && y>=155 && y<=249)p->action=101;
@@ -229,6 +227,16 @@ void pumpQuickPanel() {
         int action=std::exchange(p.action,0);auto callback=p.command;HWND owner=p.owner;
         if (action==10900) {
             callback(action);p.status=p.getStatus();InvalidateRect(p.hwnd,nullptr,FALSE);return;
+        }
+        if (action==10902) {
+            // Keep the panel visible behind its settings menu. Commands may open
+            // a modal slider, so use the copied callback and recheck the panel.
+            const HWND panelHwnd=p.hwnd;
+            callback(action);
+            if(!g_panel || g_panel->hwnd!=panelHwnd)return;
+            RECT position{};GetWindowRect(panelHwnd,&position);
+            g_reopenPosition={position.left,position.top};g_reopenAtSamePosition=true;
+            closeQuickPanel();PostMessageW(owner,WM_APP+1,0,WM_LBUTTONUP);return;
         }
         // 从消息分发外执行命令，避免销毁窗口时回调重入。
         RECT position{};GetWindowRect(p.hwnd,&position);

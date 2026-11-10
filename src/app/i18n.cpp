@@ -38,7 +38,6 @@ const Entry kEntries[] = {
     {"点击连接", "Click to connect"},
     {"连接上次的扬声器", "Connect last speaker"},
     {"或点击右下角重新扫描", "Or scan for speakers below"},
-    {"系统声音", "System audio"},
     {"暂停", "Pause"},
     {"继续", "Resume"},
     {"已暂停", "Paused"},

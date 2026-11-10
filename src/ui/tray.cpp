@@ -504,12 +504,19 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
 
     POINT pt;
     GetCursorPos(&pt);
-    SetForegroundWindow(d_->hwnd);
+    // Use the visible panel as menu owner when available. The hidden tray
+    // window remains the timer target, so audio keeps running in the menu loop.
+    HWND menuOwner = GetForegroundWindow();
+    DWORD ownerPid = 0;
+    if (menuOwner) GetWindowThreadProcessId(menuOwner, &ownerPid);
+    if (!menuOwner || !IsWindowVisible(menuOwner) || ownerPid != GetCurrentProcessId())
+        menuOwner = d_->hwnd;
+    SetForegroundWindow(menuOwner);
 
     int cmd = static_cast<int>(TrackPopupMenu(
-        hmenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, d_->hwnd, nullptr));
+        hmenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, menuOwner, nullptr));
 
-    PostMessageW(d_->hwnd, WM_NULL, 0, 0);
+    PostMessageW(menuOwner, WM_NULL, 0, 0);
     DestroyMenu(hmenu);
 
     // 先复位标志再回调 —— 否则回调里弹子菜单（比如延迟档位）会被自己挡掉。
@@ -536,7 +543,7 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
 void TrayIcon::showPanel(const std::vector<TrayMenuItem>& menu, int volume, bool paused,
                         const std::function<QuickPanelStatus()>& status,
                         const std::function<void(int)>& cb) {
-    if (!valid() || d_->menuOpen) return;
+    if (!valid() || d_->menuOpen || g_menuPumpDepth > 0) return;
     toggleQuickPanel(d_->hwnd, menu, volume, status, [this, cb](int action) {
         // 延迟设置仍是模态窗口；仅执行这类命令时临时挂网络心跳。
         if (g_menuPump && g_menuPumpDepth++ == 0)

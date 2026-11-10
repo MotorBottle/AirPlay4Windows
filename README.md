@@ -1,6 +1,6 @@
 # AirPlay Bridge
 
-> Local custom test build 1.6.1, based on upstream 1.5.58; not an upstream release.
+> Local custom test build 1.6.2, based on upstream 1.5.58; not an upstream release.
 > The latency slider requests a playback buffer; it does not measure audible latency.
 
 <p align="center">
@@ -71,7 +71,7 @@ Click the tray icon to open the dark panel; click again or press Esc to hide it.
 | Device card | Connect; click the current device again to disconnect |
 | Top switch | Pause and restore local sound; resume and mute the local output |
 | Drag the header | Move the panel |
-| Quit button | Exit and restore local sound |
+| Power icon | Exit and restore local sound |
 | Volume slider | Change receiver volume immediately; arrow keys fine-tune |
 | Latency button | Set the requested buffer and reconnect |
 | Refresh | Scan and update the device list |
