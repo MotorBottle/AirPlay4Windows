@@ -1,6 +1,6 @@
 # AirPlay Bridge
 
-> Local custom test build 1.6.2, based on upstream 1.5.58; not an upstream release.
+> Local custom test build 1.6.3, based on upstream 1.5.58; not an upstream release.
 > The latency slider requests a playback buffer; it does not measure audible latency.
 
 <p align="center">

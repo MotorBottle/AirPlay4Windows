@@ -108,9 +108,9 @@ void paint(Panel& p, HDC dc) {
     Pen line(Color(255,57,60,65));g.DrawLine(&line,0.0f,foot,440.0f,foot);
     rounded(g,{22,foot+16,104,32},6,Color(255,49,52,56),Color(255,65,69,74));
     label(g,i18n::trw("延迟")+L" "+std::to_wstring(p.status.latency)+L" ms",{22,foot+16,104,32},12,kText,false,StringAlignmentCenter);
-    glyph(g,0xE7E8,{274,foot+16,36,32},18,kMuted);
-    glyph(g,0xE72C,{326,foot+16,36,32},18,kMuted);
-    glyph(g,0xE713,{378,foot+16,36,32},19,kText);
+    glyph(g,0xE72C,{274,foot+16,36,32},16,kMuted);
+    glyph(g,0xE713,{326,foot+16,36,32},16,kMuted);
+    glyph(g,0xE7E8,{378,foot+15.5f,36,32},18,kMuted);
     Graphics screen(dc);screen.DrawImage(&buffer,0,0);
 }
 void slide(Panel& p, int x) {
@@ -147,9 +147,9 @@ LRESULT CALLBACK panelProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
         }
         else if(y>=p->height-60) {
             if(x<132)p->action=106;
-            else if(x>=270 && x<315)p->action=104;
-            else if(x>=315 && x<372)p->action=113;
-            else if(x>=372)p->action=10902;
+            else if(x>=270 && x<315)p->action=113;
+            else if(x>=315 && x<372)p->action=10902;
+            else if(x>=372)p->action=104;
         } else if(p->devices.empty() && y>=155 && y<=249)p->action=101;
         else for(size_t i=0;i<p->devices.size();++i)if(deviceRect(i).Contains(x,y)){p->action=p->devices[i].id;break;}
         return 0;

@@ -3,6 +3,20 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.6.3] - 2026-11-11
+
+**中文**
+
+### 修改
+
+- 统一底部三个图标的视觉大小与颜色，微调电源图标对齐。
+
+**English**
+
+### Changed
+
+- Match the footer icons in visual size and color, and refine power-icon alignment.
+
 ## [1.6.2] - 2026-11-11
 
 **中文**
