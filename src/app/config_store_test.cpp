@@ -430,7 +430,7 @@ int main() {
             loadConfig(kFile, out);
             checkInt(out.volume, v, "界内 volume=" + std::to_string(v));
         }
-        const int lats[] = {100, 130, 150, 200, 250, 300, 1000};
+        const int lats[] = {1, 10, 15, 32, 80, 100, 130, 150, 200, 250, 300, 1000};
         for (int l : lats) {
             writeRaw(kFile, "{\"volume\": 5, \"latencyMs\": " + std::to_string(l) + "}");
             BridgeConfig out;
@@ -447,7 +447,7 @@ int main() {
         BridgeConfig out;
         loadConfig(kFile, out);
         checkInt(out.volume, 100, "volume 150 -> 100");
-        checkInt(out.latencyMs, 100, "latencyMs 50 -> 100");
+        checkInt(out.latencyMs, 50, "experimental latency 50 persists");
 
         writeRaw(kFile, "{\"volume\": -5, \"latencyMs\": 5000}");
         BridgeConfig o2;

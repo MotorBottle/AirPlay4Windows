@@ -71,6 +71,7 @@ int main(int argc, char** argv);   // 前置声明（WinMain 要调它）
 namespace {
 
 std::atomic<bool> g_stop{false};
+bool g_paused = false;
 
 // 延迟档位。
 //
@@ -250,6 +251,8 @@ enum : int {
     MENU_LANGUAGE = 124,        // 语言（子菜单）
     MENU_LANGUAGE_EN = 125,
     MENU_LANGUAGE_ZH = 126,
+    MENU_AUTO_RECONNECT = 127,
+    MENU_SHOW_APPLETV = 128,
     MENU_ABOUT     = 117,   // 关于（版本 + 项目主页）
     MENU_QUIT      = 104,   // 退出
 };
@@ -2606,30 +2609,8 @@ struct Session {
 
         RaopEvents ev;
         ev.launched = [this](bool ok, const std::string& e) {
-            // 连上了：记住当前默认设备，然后切到虚拟声卡。
-            // 这样系统声音不再走向物理音箱，而是进了虚拟声卡；
-            // 我们从虚拟声卡采集推给 HomePod —— 电脑自己静悄悄。
-            // 连上了：确认已经接管（把默认设备切到虚拟声卡）。
-            // 真正的切换在 start() 里、打开采集之前就做了 —— 见那边的注释，
-            // 这里只是兜底调用：如果 start 时没切成（比如当时没装虚拟声卡），
-            // 现在再试一次。函数本身幂等，切过就直接返回。
-            if (ok) {
-                maybeTakeOverRenderDevice();
-                if (g_takeoverActive.load()) {
-                    // 已接管：声音进了虚拟声卡，由我们采集后推给 HomePod，
-                    // 电脑自己不出声。
-                } else {
-                    // 切不过去（没装虚拟声卡、或名字不叫 CABLE Input）。
-                    // 这时是「监听复制」模式：系统声音仍然送往默认输出设备，
-                    // 程序只是复制一份推给接收端。
-                    //
-                    // 这里只写日志，不再往 tooltip 上挂括号说明 ——
-                    // 托盘 icon 的提示只回答「连的是谁」，混进运行模式的解释
-                    // 会让那一行变长又变糊（老板 2026-10-20 要求统一）。
-                    // 没装虚拟声卡的后果已经写在 README 与菜单里。
-                    logLine("未找到虚拟声卡：无法隔离系统声音，它仍会送往电脑的输出设备");
-                }
-            }
+            if (ok && capture && capture->processLoopback())
+                logLine("使用系统进程采集；不切换默认输出设备");
 
             connected.store(ok);
             // 握手成功就复位防火墙提示的整套状态：
@@ -2868,7 +2849,7 @@ struct Session {
         //
         // cfg 是指向 main 里那个 BridgeConfig 的指针，任何时刻读都是最新值。
 
-        sender->setVolume(cfg->volume);
+        sender->setVolume(g_paused ? 0 : cfg->volume);
 
         // 注意：sender->start() 是异步的 —— 它发完握手请求就返回，
         // 真正的结果要等后续 pump() 里才出来（launched 回调）。
@@ -2957,52 +2938,8 @@ struct Session {
         loop->pump(*sender, std::chrono::milliseconds(0));
     }
 
-    // 把系统默认播放设备切到虚拟声卡（接管），让声音进 CABLE、由我们采集。
-    //
-    // **幂等**：已经切过（savedRenderDevice 非空）就直接返回。
-    // 两处调用：Session::start() 里（打开采集**之前**）和 ev.launched 里（兜底）。
-    //
-    // 为什么必须在打开采集之前切：采集的 deviceId 留空时会取「此刻的默认设备」
-    // 并绑死上去，之后系统默认设备再变它也不跟。原来接管发生在握手成功之后，
-    // 那时采集已经绑在物理扬声器上 —— 声音进了 CABLE，采集却在听一个安静的口，
-    // 结果是「采不到声音 → 判静音 → 待机 → 断开 → 恢复设备 → 又有声音」。
-    void maybeTakeOverRenderDevice() {
-        if (!savedRenderDevice.empty()) return;          // 已经接管过
-        if (g_takeoverActive.load()) return;
-        const std::string cur = getDefaultRenderDeviceName();
-        if (cur.empty()) return;
-        // 当前默认设备本来就是虚拟输出 → 直接采它就行，不需要接管。
-        // ★ 判据从「名字里含 CABLE」扩成整张已知虚拟声卡表：用户装 Voicemeeter
-        //   时，原来会被当成物理设备再去切 CABLE，切不到就白折腾一趟。
-        if (looksLikeVirtualSink(cur)) return;
-
-        // 依次尝试已知的虚拟声卡（第一个能切过去的就用它）。
-        // ★ 原来只写死 "CABLE Input"：装了 Voicemeeter、或把 VB-CABLE 改名、
-        //   或只有别的虚拟驱动的用户，接管必然失败 → 退回「本机也出声」，
-        //   而 HomePod 晚 200ms，听起来就是回声。现在退而求其次也能接管。
-        std::string target;
-        for (const char* name : kVirtualSinks) {
-            if (setDefaultRenderDevice(name)) { target = name; break; }
-        }
-        if (target.empty()) {
-            logLine("未找到虚拟声卡：无法隔离系统声音，它仍会送往电脑的输出设备");
-            // 交给主循环弹一次气泡（Session 里拿不到 tray）。
-            takeoverUnavailable = true;
-            return;
-        }
-        savedRenderDevice = cur;
-        g_takeoverActive.store(true);   // 见 g_takeoverActive 的说明
-        // 落盘记录，这样即使我们崩了，下次启动也能恢复
-        if (cfg && !cfgPath.empty()) {
-            BridgeConfig tmp;
-            loadConfig(cfgPath, tmp);
-            tmp.preCaptureDevice = cur;
-            saveConfig(cfgPath, tmp);
-        }
-        // 日志写实际切到的设备名（候选里第一个命中的），不是写死的字符串。
-        logLine("已接管：默认播放设备切到 " + getDefaultRenderDeviceName() +
-                "（原为 " + cur + "）");
-    }
+    // 本地定制版不接管默认设备；保留旧接管记录的恢复路径。
+    void maybeTakeOverRenderDevice() {}
     // 只负责「把接管撤销掉」，不碰采集/发送线程。
     //
     // 为什么需要单独一个：start() 里 maybeTakeOverRenderDevice() 已经把默认设备
@@ -3847,16 +3784,8 @@ int main(int argc, char** argv) {
         }
         logLine(forLog);
     };
-    // 捕获 cfgPath：下面「静音扬声器」那几条要落盘（崩溃恢复用）。
-    // &sess：静音那一段要读 sess.muteCheckFromWake（本次会话是不是唤醒来的）。
-    sess.onConnected = [&tray, &cfg, &cfgPath, &sess](bool ok) {
-        tray.setConnected(ok);
-        // tooltip 的"基础文案"跟着图标一起走 —— 这两者必须始终一致，
-        // 分成两条独立的路就一定会有一条被漏掉。
-        // 具体状态（失败原因、断开原因）稍后由 onStatus 覆盖上去。
-        tray.setTooltip(ok ? i18n::tr("AirPlay Bridge - 已连接")
-                           : i18n::tr("AirPlay Bridge - 未连接"));
-
+    // 连接、暂停和本机静音设置共用同一条恢复路径。
+    auto updateLocalMute = [&cfg, &cfgPath, &sess](bool sending) {
         // 连接时静音电脑自己的扬声器，断开时恢复。
         //
         // 三条边界：
@@ -3871,7 +3800,7 @@ int main(int argc, char** argv) {
         //     那是他自己设的状态，不该被一个音频程序改掉。
         //  3. 恢复只看 g_mutedByUs，不受开关影响 —— 用户中途关掉开关时，
         //     已经静音的端点也必须还回去。
-        if (ok) {
+        if (sending) {
             // muteGaveUp：本次运行已经因为「静音后采不到电平」放弃过自动静音，
             // 不再重试 —— 否则会话一重建就又静上，来回抖。
             if (cfg.muteLocalOnConnect && !g_takeoverActive.load() &&
@@ -3942,11 +3871,17 @@ int main(int argc, char** argv) {
                     cfg.localMutedByUs = false;
                     saveConfig(cfgPath, cfg);
                 }
+                logLine("已恢复电脑扬声器的声音");
             } else if (cfg.localMutedByUs) {
-                logLine("断开时恢复电脑扬声器失败：保留标记，下次启动重试");
+                logLine("恢复电脑扬声器失败：保留标记，下次启动重试");
             }
-            logLine("已恢复电脑扬声器的声音");
         }
+    };
+    sess.onConnected = [&tray, &updateLocalMute](bool ok) {
+        tray.setConnected(ok);
+        tray.setTooltip(ok ? i18n::tr("AirPlay Bridge - 已连接")
+                           : i18n::tr("AirPlay Bridge - 未连接"));
+        updateLocalMute(ok && !g_paused);
     };
 
     // 菜单打开期间继续推音频 IO。
@@ -4036,26 +3971,6 @@ int main(int argc, char** argv) {
     // 记住的设备通常还活着，直连基本都能成 —— 扫描留作回落。
     auto tryConnect = [&](bool skipResolve = false, bool forceScan = false) {
         if (sess.running.load()) return;
-
-        // ★ 自愈：采集端点处于静音时，环回恒为 0（实测 Realtek：静音 → 0，
-        //   解除 → 11669），程序不可能工作。无论静音是谁设的 —— 旧版本遗留、
-        //   用户手滑、还是崩溃时没来得及恢复 —— 开流前一律解除，否则表现
-        //   就是「放音乐却永远连不上」，而且日志里只有一行行峰值 0，毫无线索。
-        //
-        //   只在「不是本会话我们静的音」时动手（g_mutedByUs），否则会和
-        //   「连接时静音电脑扬声器」抢同一个开关。
-        if (!g_mutedByUs.load() && isSystemMuted()) {
-            if (setSystemMuted(false)) {
-                logLine("采集端点处于静音（环回采不到声音），已自动解除");
-                if (!muteHealNotified) {
-                    muteHealNotified = true;
-                    tray.notify("AirPlay Bridge", i18n::tr(
-                        "电脑输出原本处于静音，已自动解除，否则无法采集声音。"));
-                }
-            } else {
-                logLine("采集端点处于静音，且解除失败 —— 本次连接大概率没有声音");
-            }
-        }
 
         // 直连路径：skipResolve 走它；forceScan（重新扫描）不走 ——
         // 用户点"重新扫描"就是要真扫，不能被记住的设备挡住。
@@ -4164,6 +4079,11 @@ int main(int argc, char** argv) {
             // 托盘图标的约定本来就是"点它看菜单"，左右键不该有区别。
             if (e != TrayEvent::RightClick && e != TrayEvent::LeftClick) return;
 
+            if (discovered.empty() && !sess.host.empty()) {
+                AirPlayDevice remembered;
+                remembered.host=sess.host;remembered.deviceId=sess.deviceId;remembered.name=sess.deviceName;
+                discovered.push_back(std::move(remembered));
+            }
             std::vector<TrayMenuItem> menu;
             // 状态区：拆成两行，避免设备名把菜单撑得过宽。
             // 第一行只有状态本身，第二行是设备名 + IP。
@@ -4481,10 +4401,80 @@ int main(int argc, char** argv) {
             menu.push_back({"", 0, true, true, false});
             menu.push_back({i18n::tr("退出"), MENU_QUIT});
 
+            // 设置只保留一层；设备来源和语言保留各自的选择列表。
+            std::vector<TrayMenuItem> panelSettings;
+            for (const auto& group : menu) {
+                if (group.id == MENU_DEVICE_GROUP) {
+                    for (auto item : group.children) {
+                        if (item.id == MENU_CAPTURE_DEVICE || item.id == MENU_HIDE_DEVICE) {
+                            if (item.id == MENU_CAPTURE_DEVICE && !item.children.empty())
+                                item.children.front().label = i18n::tr("系统声音（推荐）");
+                            panelSettings.push_back(std::move(item));
+                        }
+                    }
+                } else if (group.id == MENU_QUALITY) {
+                    panelSettings.push_back({group.label, MENU_QUALITY_CUSTOM});
+                } else if (group.id == MENU_ADVANCED) {
+                    for (auto item : group.children) {
+                        if (item.id == MENU_STANDBY) {
+                            item.id = MENU_STANDBY_CUSTOM;
+                            item.children.clear();
+                        }
+                        panelSettings.push_back(std::move(item));
+                    }
+                }
+            }
+            panelSettings.push_back({i18n::tr("掉线自动重连"), MENU_AUTO_RECONNECT, true, false, cfg.autoReconnect});
+            panelSettings.push_back({i18n::tr("显示 Apple TV"), MENU_SHOW_APPLETV, true, false, !cfg.hideAppleTV});
+            panelSettings.push_back({i18n::tr("关于"), MENU_ABOUT});
+            panelSettings.push_back({i18n::tr("退出"), MENU_QUIT});
+
             // 打点：TrackPopupMenu 跑的是模态消息循环，主循环在里面停摆。
             // 这一步卡住的话用户看到的就是"点托盘没反应"。
             setPhase(PHASE_MENU_OPEN);
-            tray.showMenu(menu, [&](int id) {
+            tray.showPanel(menu, cfg.volume, g_paused, [&]() {
+                return QuickPanelStatus{
+                    i18n::tr(sess.connected.load() ? (g_paused ? "已暂停" : "正在推流") : (sess.running.load() ? "连接中..." : "未连接")),
+                    sess.deviceName, sess.connected.load(), sess.running.load(), g_paused, cfg.latencyMs};
+            }, [&, panelDevices=discovered, panelSettings=std::move(panelSettings)](int id) {
+                if (id >= 10000 && id <= 10100) {
+                    cfg.volume = id - 10000;
+                    if (sess.sender) sess.sender->setVolume(g_paused ? 0 : cfg.volume);
+                    saveConfig(cfgPath, cfg);
+                    return;
+                }
+                if (id == 10900) {
+                    g_paused = !g_paused;
+                    if (sess.sender) sess.sender->setVolume(g_paused ? 0 : cfg.volume);
+                    updateLocalMute(sess.connected.load() && !g_paused);
+                    logLine(g_paused ? "已暂停推流声音，恢复本机输出" : "已恢复推流声音");
+                    return;
+                }
+                if (id == 10901 || (id >= kDeviceMenuBase && id < kDeviceMenuBase + static_cast<int>(panelDevices.size())
+                    && sess.running.load() && panelDevices[id-kDeviceMenuBase].host == sess.host)) {
+                    userDisconnected = true;
+                    sess.teardown();
+                    tray.setConnected(false);
+                    return;
+                }
+                if (id == 10902) {
+                    int selected = 0;
+                    tray.showMenu(panelSettings, [&](int item) { selected = item; });
+                    if (!selected) return;
+                    id = selected; // 复用下面的处理，保持与原设置行为一致。
+                }
+                if (id == MENU_AUTO_RECONNECT) {
+                    cfg.autoReconnect = !cfg.autoReconnect;
+                    saveConfig(cfgPath, cfg);
+                    return;
+                }
+                if (id == MENU_SHOW_APPLETV) {
+                    cfg.hideAppleTV = !cfg.hideAppleTV;
+                    saveConfig(cfgPath, cfg);
+                    std::lock_guard<std::mutex> lk(g_lastScanAllMutex);
+                    discovered = filterDevices(g_lastScanAll, cfg);
+                    return;
+                }
                 // 设备列表里点了一项：直接连它。
                 // 「隐藏设备」子菜单的点击 —— 切换该设备的显示/隐藏。
                 //
@@ -4513,6 +4503,7 @@ int main(int argc, char** argv) {
                             logLine("已恢复显示设备: " + all[idx].name);
                         }
                         saveConfig(cfgPath, cfg);
+                        discovered = filterDevices(all, cfg);
                     }
                     return;
                 }
@@ -4548,7 +4539,7 @@ int main(int argc, char** argv) {
 
                 // 这些 id 在子菜单里（kDeviceMenuBase + 序号）。
                 if (id >= kDeviceMenuBase &&
-                    id < kDeviceMenuBase + static_cast<int>(discovered.size())) {
+                    id < kDeviceMenuBase + static_cast<int>(panelDevices.size())) {
                     const size_t idx = static_cast<size_t>(id - kDeviceMenuBase);
                     // ★ 清掉「用户主动断开」标记 —— 从设备列表挑一台来连，
                     //   和按「连接」是同一个意图，两条路必须一致。
@@ -4559,11 +4550,12 @@ int main(int argc, char** argv) {
                     //   标志还挡着，自动重连一次都不试，用户以为程序死了。
                     //   （2026-10-23 外部审查 P3，2026-10-24 修）
                     userDisconnected = false;
+                    g_paused = false;
                     sess.teardown();
-                    sess.host = discovered[idx].host;
-                    sess.deviceId = discovered[idx].deviceId;
-                    sess.deviceName = discovered[idx].name;
-                    sess.deviceFirmware = deviceFirmwareLabel(discovered[idx]);
+                    sess.host = panelDevices[idx].host;
+                    sess.deviceId = panelDevices[idx].deviceId;
+                    sess.deviceName = panelDevices[idx].name;
+                    sess.deviceFirmware = deviceFirmwareLabel(panelDevices[idx]);
                     std::string err;
                     if (!sess.start(err)) {
                         logLine("启动失败: " + err);
@@ -4672,7 +4664,7 @@ int main(int argc, char** argv) {
                     return;
                 }
                 if (id == MENU_STANDBY_CUSTOM) {   // "自定义（滑块）..."
-                    const int picked = showStandbyDialog(cfg.standbyTenths);
+                    const int picked = showStandbyDialog(standbyActiveConfig(cfg) ? cfg.standbyTenths : 0);
                     // 注意是 >= 0 —— 拉到 0 表示关闭，也要存下来。
                     // 只处理 > 0 的话，用户往左拖到底会没反应。
                     if (picked >= 0) {
@@ -4711,39 +4703,8 @@ int main(int argc, char** argv) {
                 if (id == MENU_MUTE_LOCAL) {
                     cfg.muteLocalOnConnect = !cfg.muteLocalOnConnect;
                     saveConfig(cfgPath, cfg);
-                    // 关掉开关时如果端点还静着，立刻还回去 ——
-                    // 不能等下一次断开，那时用户已经在困惑电脑为什么没声音了。
-                        // ★ 先尝试恢复，**成功才清标记**。
-                        //   原来是先 exchange(false) 再恢复 —— 失败时标记已经没了，
-                        //   本次会话不会再试，只能等下个进程启动（落盘标记还在）。
-                        //   （2026-10-19 第五轮复核 P3-B）
-                        if (!cfg.muteLocalOnConnect && g_mutedByUs.load()) {
-                            // 恢复按静音时记下的端点 id 找回（N3）。
-                            if (setSystemMutedOn(false, cfg.localMutedEndpointId)) {
-                                g_mutedByUs.store(false);
-                                cfg.localMutedEndpointId.clear();
-                                // ★ 落盘标记也要清 —— 只清内存的话，配置里还留着
-                                //   localMutedByUs=true，下次启动会再取消一次静音，
-                                //   覆盖用户退出后手动设置的静音。
-                                //   （2026-10-19 第六轮复核 P3-B）
-                                if (cfg.localMutedByUs) {
-                                    cfg.localMutedByUs = false;
-                                    saveConfig(cfgPath, cfg);
-                                }
-                                logLine("已恢复电脑扬声器的声音（开关关闭）");
-                            } else {
-                                logLine("开关关闭后恢复电脑扬声器失败，保留标记稍后重试");
-                            }
-                        }
-                    // ★ 用户重新打开开关 = 明确的"我要这个功能"，清掉放弃标记。
-                    //
-                    //   没有这一句的话，muteGaveUp 一旦置位就再没有复位路径
-                    //   （本进程内），用户把开关关掉再打开也不生效，
-                    //   只能重启程序 —— 而撤销可能本来就源自误诊
-                    //   （待机关闭 + 暂停 ≥30 秒那条判据）。
-                    //   承诺了"手动开关仍然生效"，就得让"开"这个方向真的生效。
-                    //   （2026-10-24 第三次复查指出：只兑现了一半。）
                     if (cfg.muteLocalOnConnect) muteGaveUp = false;
+                    updateLocalMute(cfg.muteLocalOnConnect && sess.connected.load() && !g_paused);
                     return;
                 }
 
@@ -4759,6 +4720,7 @@ int main(int argc, char** argv) {
                         } else {
                             // 用户手动连接：清掉标记，恢复正常
                             userDisconnected = false;
+                            g_paused = false;
                             tryConnect();
                         }
                         break;
@@ -4810,49 +4772,7 @@ int main(int argc, char** argv) {
                         // 不论扫到几台，都弹设备列表。
                         // 原来只有 2 台以上才弹：1 台直接连、0 台毫无动静，
                         // 用户点完菜单就消失，完全不知道发生了什么。
-                        std::vector<TrayMenuItem> sub;
-
-                        if (discovered.empty()) {
-                            // 扫不到也给个明确交代，并提示该查什么。
-                            // ★ 三条都要过 tr() —— 原来直接写中文，
-                            //   英文界面的重新扫描结果里会冒出中文（2026-10-24 复查）。
-                            sub.push_back({i18n::tr("未找到设备"), 0, false, false, false});
-                            sub.push_back({"", 0, true, true, false});
-                            sub.push_back({i18n::tr("请确认 HomePod 已通电"), 0, false, false, false});
-                            sub.push_back({i18n::tr("且与电脑在同一 WiFi"), 0, false, false, false});
-                            tray.setTooltip(i18n::tr("AirPlay Bridge - 未找到设备"));
-                        } else {
-                            for (size_t i = 0; i < discovered.size(); ++i) {
-                                sub.push_back({deviceMenuLabel(discovered[i]),
-                                               static_cast<int>(1000 + i),
-                                               true, false, false});
-                            }
-                            tray.setTooltip(
-                                std::string(i18n::tr("AirPlay Bridge - 找到 ")) +
-                                std::to_string(discovered.size()) + i18n::tr(" 台设备"));
-                        }
-
-                        tray.showMenu(sub, [&](int sid) {
-                            const size_t idx = static_cast<size_t>(sid - 1000);
-                            if (idx >= discovered.size()) return;   // 包括"未找到设备"
-
-                            sess.host = discovered[idx].host;
-                            sess.deviceId = discovered[idx].deviceId;
-                            sess.deviceName = discovered[idx].name;
-                            sess.deviceFirmware = deviceFirmwareLabel(discovered[idx]);
-                            std::string err;
-                            if (!sess.start(err)) {
-                                logLine("启动失败: " + err);
-                                tray.setTooltip(i18n::tr("AirPlay Bridge - 启动失败"));
-                                tray.notify("AirPlay Bridge",
-                                std::string(i18n::tr("启动失败: ")) + err);
-                            } else {
-                                cfg.lastHost = sess.host;
-                                if (!sess.deviceId.empty()) cfg.lastDeviceId = sess.deviceId;
-                                if (!sess.deviceName.empty()) cfg.lastDeviceName = sess.deviceName;
-                                saveConfig(cfgPath, cfg);
-                            }
-                        });
+                        logLine("设备列表已刷新，共 " + std::to_string(discovered.size()) + " 台");
                         break;
                     }
 
@@ -5120,6 +5040,7 @@ int main(int argc, char** argv) {
                     //     静音本来就是为了不打扰，而这里根本没在播放，撤销的
                     //     代价只是扬声器出声，比整机周期断连轻得多。
                     if (cfg.muteLocalOnConnect && g_mutedByUs.load() &&
+                        !(sess.capture && sess.capture->processLoopback()) &&
                         sess.running.load() && sess.connected.load()) {
                         const bool fromWake = muteFromWake;
                         const int  need = fromWake ? 1 : kMuteNoSignalPasses;
@@ -5349,20 +5270,8 @@ int main(int argc, char** argv) {
             }
         }
 
-        // 主循环节拍 20ms → 8ms。
-        //
-        // 音频 pacer 的设计节拍是 8ms（kPacerMs），而 pacer 靠主循环里的
-        // loop->pump() → sender.tick() 驱动。20ms 一轮时，发包就是「每 20ms
-        // 一批 2~3 个包」，批与批之间有 20ms 的空窗 —— 接收端要靠自己的缓冲
-        // 撑过那个空窗。
-        //
-        // 缓冲越浅，空窗占比越大：150ms 时 20/150 = 13%，125ms 时 16%。
-        // 实测的爆音边界正好落在 100~150 之间，所以把节拍对齐到 pacer 的设计值。
-        //
-        // 代价：主循环 50 次/秒 → 125 次/秒，空转开销上升（每轮只做 tray.pump
-        // 和状态检查，都是很轻的活）。v1.5.3 已经 timeBeginPeriod(1)，
-        // 所以 8ms 是真的 8ms，不会被时钟粒度拉长。
-        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        // 网络 pump 已按发送 deadline 等待，额外让出 1ms。
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     // 停看门狗：先置 g_stop（上面循环条件已置），再 join。

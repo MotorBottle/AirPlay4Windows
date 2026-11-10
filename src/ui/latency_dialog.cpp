@@ -30,7 +30,7 @@ namespace fxchain {
 namespace {
 
 // 取自托盘图标（HomePod mini 织物），让滑块和图标是一套色
-constexpr COLORREF kAccent = RGB(0xE0, 0x58, 0x38);
+constexpr COLORREF kAccent = RGB(0x5B, 0xC9, 0xF4);
 
 // 光标所在显示器的矩形（工作区之外的整块屏幕）。
 //
@@ -634,12 +634,12 @@ int showLatencyDialog(int currentMs) {
     SliderDialogSpec spec;
     spec.title = i18n::tr("AirPlay Bridge — 延迟调节");
     spec.hint = i18n::tr(
-        "拖到不爆音的最低位置就是最优解。低于 150ms 可能出现爆音，越低延迟越小，"
+        "此值是请求的播放缓冲，不是实测出声延迟。可以向下尝试，"
         "但接收端缓冲不足会爆音或卡顿。");
-    // 范围比档位宽：低端放到 100ms 让用户自己探边界（档位表最低是 130ms ——
+    // 范围比档位宽：低端开放到 1ms 让用户试验（档位表最低是 130ms ——
     // 那是「推荐值」，滑块是「实验区间」，两者职责不同），
     // 高端给到 300ms 以容纳网络条件差、需要更大缓冲的场景。
-    spec.minValue = 100;
+    spec.minValue = 1;
     spec.maxValue = 300;
     spec.tickFreq = 0;
     spec.unit = "ms";

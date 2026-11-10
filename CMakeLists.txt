@@ -36,7 +36,7 @@ endif()
 # 2026-10-24：同一个 PROJECT_VERSION 现在还喂给 exe 的 VERSIONINFO 资源
 # （见 src/icons/bridge.rc），资源管理器「属性 → 详细信息」才不空白。
 # 仍是单一来源 —— 资源文件里不另存一份版本号。
-project(airplay_bridge VERSION 1.5.58 LANGUAGES CXX)
+project(airplay_bridge VERSION 1.6.1 LANGUAGES CXX)
 
 if(ALMA_ASAN)
     add_compile_options(/fsanitize=address /Zi)
@@ -69,7 +69,7 @@ endif()
 
 # 只建库，不建它的示例与测试
 set(AIRPLAY_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
-set(AIRPLAY_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
+set(AIRPLAY_BUILD_TESTS   ON CACHE BOOL "" FORCE)
 add_subdirectory(${UPSTREAM} ${CMAKE_BINARY_DIR}/sender)
 
 # ---- 主程序（托盘）----
@@ -85,6 +85,7 @@ add_executable(airplay_bridge WIN32
     src/device/discovery.cpp
     # 界面：托盘、滑块窗口
     src/ui/tray.cpp
+    src/ui/quick_panel.cpp
     src/ui/latency_dialog.cpp
     # 图标与资源
     src/icons/bridge.rc
@@ -120,6 +121,8 @@ target_link_libraries(airplay_bridge PRIVATE
     Threads::Threads
     ole32       # COM
     uuid        # __uuidof / IID
+    mmdevapi
+    comctl32
     avrt        # 音频线程优先级
     winmm
     winhttp     # 检查更新（WinHTTP 拉 GitHub release）

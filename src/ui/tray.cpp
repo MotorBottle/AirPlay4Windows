@@ -9,6 +9,11 @@
 #define NOMINMAX
 
 #include "tray.h"
+#include "quick_panel.h"
+#include "i18n.h"
+#include <windows.h>
+#include <commctrl.h>
+#include <algorithm>
 #include "darkmode.h"
 
 #include <windows.h>
@@ -25,7 +30,7 @@ constexpr UINT WM_TRAY_CALLBACK = WM_APP + 1;
 
 // 菜单打开期间的音频心跳定时器（见 TrayIcon::setMenuPump）
 constexpr UINT_PTR kMenuPumpTimer = 0x41;
-constexpr UINT     kMenuPumpMs    = 10;
+constexpr UINT     kMenuPumpMs    = 1;
 std::function<void()> g_menuPump;
 // 心跳定时器的嵌套深度：showMenu 可重入（回调里再弹子菜单/二次菜单），
 // 只有最外层负责 Set/Kill。以前无条件 Kill，内层菜单一关心跳就没了，
@@ -409,6 +414,7 @@ bool TrayIcon::create(const std::string& tooltip) {
     }
 
     d_->created = true;
+    if (wcsstr(GetCommandLineW(), L"--panel")) PostMessageW(d_->hwnd, WM_TRAY_CALLBACK, 0, WM_LBUTTONUP);
     return true;
 }
 
@@ -526,6 +532,21 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
         KillTimer(d_->hwnd, kMenuPumpTimer);
 }
 
+
+void TrayIcon::showPanel(const std::vector<TrayMenuItem>& menu, int volume, bool paused,
+                        const std::function<QuickPanelStatus()>& status,
+                        const std::function<void(int)>& cb) {
+    if (!valid() || d_->menuOpen) return;
+    toggleQuickPanel(d_->hwnd, menu, volume, status, [this, cb](int action) {
+        // 延迟设置仍是模态窗口；仅执行这类命令时临时挂网络心跳。
+        if (g_menuPump && g_menuPumpDepth++ == 0)
+            SetTimer(d_->hwnd, kMenuPumpTimer, kMenuPumpMs, nullptr);
+        if (cb) cb(action);
+        if (g_menuPump && --g_menuPumpDepth == 0)
+            KillTimer(d_->hwnd, kMenuPumpTimer);
+    });
+}
+
 void TrayIcon::setMenuPump(std::function<void()> pump) {
     g_menuPump = std::move(pump);
 }
@@ -538,21 +559,18 @@ void TrayIcon::pump(const TrayEventHandler& handler) {
     if (!valid()) return;
     g_handler = handler;
 
-    // 每次只取一条消息。
-    // 原来的 while 循环会把队列一次抽干 —— 用户连点几下右键时，
-    // 队列里会堆着好几条 WM_TRAY_CALLBACK，它们会在同一个 pump() 里
-    // 被连续派发。而右键处理会调 TrackPopupMenu（自带模态消息循环），
-    // 于是弹出一层菜单、里面又处理下一条、再弹一层……同时回调里的
-    // "断开" 分支会把正在跑的会话拆掉，有 use-after-free 风险。
-    // 改成每次一条，主循环每 20ms 调一次 pump，天然挡住了这种重入。
-    MSG msg;
-    if (PeekMessageW(&msg, d_->hwnd, 0, 0, PM_REMOVE)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+    // 面板不阻塞主循环：同时处理面板消息、音频、待机和重连。
+    MSG msg{};
+    for (int count = 0; count < 16 && PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE); ++count) {
+        if (msg.message == WM_QUIT) { if (g_quitRequest) g_quitRequest(); break; }
+        if (!quickPanelMessage(msg)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
     }
+    pumpQuickPanel();
+
 }
 
 void TrayIcon::destroy() {
+    closeQuickPanel();
     if (!d_ || !d_->created) return;
 
     NOTIFYICONDATAW nid{};

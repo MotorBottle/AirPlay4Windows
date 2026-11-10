@@ -36,6 +36,12 @@ struct TrayMenuItem {
     std::vector<TrayMenuItem> children;
 };
 
+struct QuickPanelStatus {
+    std::string state, device;
+    bool connected=false, running=false, paused=false;
+    int latency=0;
+};
+
 class TrayIcon {
 public:
     TrayIcon();
@@ -68,6 +74,8 @@ public:
     // 这里注册一个回调：菜单开着的时候用定时器继续推，菜单关掉就停。
     // 定时器消息能进得来，是因为 TrackPopupMenu 的循环会把消息派发给
     // 菜单的宿主窗口（也就是托盘那个隐藏窗口）。
+    void showPanel(const std::vector<TrayMenuItem>& menu, int volume, bool paused,
+                   const std::function<QuickPanelStatus()>& status, const std::function<void(int)>& cb);
     void setMenuPump(std::function<void()> pump);
 
     // 窗口收到 WM_CLOSE 时回调（用户从任务管理器关它、或系统关机时）。

@@ -17,7 +17,7 @@ index 6f5c72d..c9d488b 100644
      else()
          target_compile_options(${target} PRIVATE -Wall -Wextra)
 diff --git a/src/raop_sender.cpp b/src/raop_sender.cpp
-index 0e282e1..f389ec4 100644
+index 0e282e1..0abf104 100644
 --- a/src/raop_sender.cpp
 +++ b/src/raop_sender.cpp
 @@ -98,8 +98,12 @@ struct RaopAp2State {
@@ -49,7 +49,23 @@ index 0e282e1..f389ec4 100644
          writeRtsp_(req);
      } else {
          sendRequest_("POST", "/feedback", {}, {});
-@@ -723,7 +728,7 @@ void RaopSender::sendRequest_(const std::string& method, const std::string& uri,
+@@ -632,12 +637,15 @@ void RaopSender::setVolume(double pct) {
+     // 100 % and the wire text becomes "-0.000000".
+     const double dbfs = (pct < 0.01) ? -144.0 : ((pct * 3.0 - 300.0) / 10.0);
+     pendingVolumeDb_ = dbfs;
++    info_("Cast: volume requested {} percent, {} dB", pct, dbfs);
+     if (state_ == State::Streaming) {
+         const std::string body = "volume: " + fixed6(dbfs);
+         Extra vh;
+         if (!rtspSession_.empty())
+             vh.push_back({"Session", rtspSession_});
+         sendRequest_("SET_PARAMETER", rtspUri_(), "text/parameters", body, vh);
++        if (std::getenv("APB_VOLUME_PROBE"))
++            sendRequest_("GET_PARAMETER", rtspUri_(), "text/parameters", std::string("volume") + char(13) + char(10), vh);
+     }
+ }
+ 
+@@ -723,7 +731,7 @@ void RaopSender::sendRequest_(const std::string& method, const std::string& uri,
                                const Extra& extra) {
      std::string req = method + " " + uri + " RTSP/1.0\r\n";
      req += "CSeq: " + std::to_string(cseq_++) + "\r\n";
@@ -58,7 +74,7 @@ index 0e282e1..f389ec4 100644
      req += "DACP-ID: " + dacpId_ + "\r\n";
      req += "Active-Remote: " + std::to_string(activeRemote_) + "\r\n";
      req += "Client-Instance: " + dacpId_ + "\r\n";
-@@ -816,6 +821,19 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
+@@ -816,6 +824,19 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
          }
          eventPlainBuf_.append(reinterpret_cast<const char*>(dec->data()), dec->size());
          eventEncBuf_.erase(0, need);
@@ -78,7 +94,7 @@ index 0e282e1..f389ec4 100644
      }
      // Answer each complete RTSP request with an encrypted 200 OK.
      for (;;) {
-@@ -829,9 +847,24 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
+@@ -829,9 +850,24 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
              if (colon == std::string::npos || colon == 0) continue;
              const std::string k = trimAscii(lowerAscii(t.substr(0, colon)));
              const std::string v = trimAscii(t.substr(colon + 1));
@@ -104,7 +120,7 @@ index 0e282e1..f389ec4 100644
          const size_t total = headEnd + 4 + size_t(contentLen > 0 ? contentLen : 0);
          if (eventPlainBuf_.size() < total) break;   // body still arriving
          eventPlainBuf_.erase(0, total);
-@@ -839,7 +872,7 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
+@@ -839,7 +875,7 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
          // no Content-Length/Audio-Latency (those can corrupt the receiver's
          // realtime timeline). Echo CSeq when the request carried one.
          std::string resp = "RTSP/1.0 200 OK\r\n";
@@ -113,7 +129,20 @@ index 0e282e1..f389ec4 100644
          if (!cseq.empty()) resp += "CSeq: " + cseq + "\r\n";
          resp += "\r\n";
          const int rlen = int(resp.size());
-@@ -1126,6 +1159,7 @@ void RaopSender::startStreaming_() {
+@@ -944,7 +980,11 @@ void RaopSender::onRtspReadyRead_(std::span<const uint8_t> bytes) {
+ 
+         // v0.66.x Phase 2/3, route HTTP-mode replies (pairing / AP2
+         // plists) to the pairing dispatcher; everything else is RTSP.
+-        if (replyIsHttp) {
++        if (method == "GET_PARAMETER" && std::getenv("APB_VOLUME_PROBE")) {
++            std::string value=body.substr(0,256);
++            for (char& c:value) if (c==char(13) || c==char(10)) c=' ';
++            info_("Cast: volume readback status={} body={}",code,value);
++        } else if (replyIsHttp) {
+             onPairingResponse_(code, headers, body);
+         } else {
+             handleResponse_(method, code, headers);
+@@ -1126,6 +1166,7 @@ void RaopSender::startStreaming_() {
      startTs_ = ntp2ts(ntpNow_(), kRaopRate);
      framesSent_ = 0;
      firstAudio_ = true;
@@ -121,7 +150,7 @@ index 0e282e1..f389ec4 100644
      clockStart_ = now_();
      sendSyncPacket_(true);   // first sync carries the marker bit
      arm_(syncTimer_);
-@@ -1180,7 +1214,7 @@ void RaopSender::httpPost_(const std::string& uri, const std::string& contentTyp
+@@ -1180,7 +1221,7 @@ void RaopSender::httpPost_(const std::string& uri, const std::string& contentTyp
      // route the reply back to onPairingResponse_ via pendingIsHttp_.
      std::string req = "POST " + uri + " HTTP/1.1\r\n";
      req += "CSeq: " + std::to_string(cseq_++) + "\r\n";
@@ -130,7 +159,7 @@ index 0e282e1..f389ec4 100644
      req += "Connection: keep-alive\r\n";
      req += "X-Apple-HKP: " +
             std::to_string(authMethod_ == RaopDeviceInfo::Auth::HapTransient ? 4 : 3) + "\r\n";
-@@ -1548,6 +1582,18 @@ void RaopSender::handlePairSetupM4_(const std::string& body) {
+@@ -1548,6 +1589,18 @@ void RaopSender::handlePairSetupM4_(const std::string& body) {
          ap2_->controlIn  = hkdfSha512("Control-Salt",
                                        "Control-Read-Encryption-Key",
                                        ap2_->sharedSecret, 32);
@@ -149,7 +178,7 @@ index 0e282e1..f389ec4 100644
          pairStage_ = PairStage::Done;
          afterAuthOk_();
          return;
-@@ -1743,7 +1789,7 @@ void RaopSender::sendAp2Rtsp_(const std::string& method, const std::string& uri,
+@@ -1743,7 +1796,7 @@ void RaopSender::sendAp2Rtsp_(const std::string& method, const std::string& uri,
                                const std::string& body) {
      std::string req = method + " " + uri + " RTSP/1.0\r\n";
      req += "CSeq: " + std::to_string(cseq_++) + "\r\n";
@@ -158,7 +187,7 @@ index 0e282e1..f389ec4 100644
      req += "DACP-ID: " + dacpId_ + "\r\n";
      req += "Active-Remote: " + std::to_string(activeRemote_) + "\r\n";
      req += "Client-Instance: " + dacpId_ + "\r\n";
-@@ -1781,11 +1827,13 @@ void RaopSender::sendAp2SetupSession_() {
+@@ -1781,11 +1834,13 @@ void RaopSender::sendAp2SetupSession_() {
      d.emplace_back("macAddress", Value::str(identity_.deviceId));
      d.emplace_back("model", Value::str(identity_.model));
      d.emplace_back("name", Value::str(identity_.name));
@@ -176,40 +205,43 @@ index 0e282e1..f389ec4 100644
      d.emplace_back("statsCollectionEnabled", Value::boolean(false));
      const auto body = airplay::bplist::encode(Value::object(std::move(d)));
      pairStage_ = PairStage::Ap2Session;
-@@ -1859,6 +1907,26 @@ void RaopSender::sendAp2SetupStream_() {
+@@ -1859,8 +1914,12 @@ void RaopSender::sendAp2SetupStream_() {
      stream.emplace_back("controlPort", Value::integer(localControlPort_));
      stream.emplace_back("ct", Value::integer(2));        // ALAC
      stream.emplace_back("isMedia", Value::boolean(true));
 +    // 调度窗口 —— **这是接收端的能力声明，不是我们的延迟设置**。
 +    //
-+    // 【2026-10-17 更正】这里曾经被改成 `latencyMax = latency_ * 2`，
-+    // 理由是"上限给 2 倍余量"——**那个理由是编的**，没有任何依据。
-+    //
-+    // 查 pyatv 官方实现（protocols/airplayv2.py）：
-+    //     "latencyMax": 88200,     # 2.0s  ← 固定常量
-+    //     "latencyMin": 11025,     # 250ms ← 固定常量
-+    // 而它的 latency（实际用的延迟）是 `22050 + sample_rate` = 1.5s，
-+    // **单独一个变量，从不参与这两个字段的计算**。
-+    //
-+    // 两者的语义完全不同：
-+    //   latencyMax/Min = "我（接收端）能垫多深" —— 能力范围，不该由发送端缩小
-+    //   latency_       = "我们实际用多深"       —— 通过 RTP 时间戳和 sync 包表达
-+    //
-+    // 把 max 改成 latency_*2，等于**替接收端把它自己声明的能力上限砍掉**
-+    // （250ms 档位下从 2 秒砍到 500ms）。若接收端按 max 决定可用缓冲，
-+    // 那正是我们想避免的 underrun 来源。
-+    //
-+    // 所以恢复成上游的固定值。真要让接收端垫得更浅，改的是 latency_，不是这里。
++    // 本地实验：保留最大能力窗口，只把最小缓冲请求与 RTP 延迟一致。
++    // 接收端仍可能钳制；该请求不代表测得的端到端延迟。
      stream.emplace_back("latencyMax", Value::integer(88200));
-     stream.emplace_back("latencyMin", Value::integer(11025));
+-    stream.emplace_back("latencyMin", Value::integer(11025));
++    stream.emplace_back("latencyMin", Value::integer(std::min<uint32_t>(latency_, 11025)));
      stream.emplace_back("shk", Value::bytes(ap2_->audioKey));
-@@ -1979,7 +2047,60 @@ std::string RaopSender::encodeAlacFrame_(const int16_t* frames, int nFrames) {
+     stream.emplace_back("spf", Value::integer(352));     // samples per frame
+     stream.emplace_back("sr", Value::integer(44100));
+@@ -1888,6 +1947,10 @@ void RaopSender::handleAp2SetupStream_(const std::string& body) {
+                 const Value& s0 = streams->arr.front();
+                 if (auto* dp = s0.find("dataPort"))    serverPort_  = uint16_t(dp->asInt());
+                 if (auto* cp = s0.find("controlPort")) controlPort_ = uint16_t(cp->asInt());
++                for (const auto& entry : s0.dict) {
++                    if (entry.second.type == Value::Type::Int && entry.first.find("latency") != std::string::npos)
++                        info_("Cast: receiver stream {}={}", entry.first, entry.second.asInt());
++                }
+             }
+         }
+     }
+@@ -1979,8 +2042,73 @@ std::string RaopSender::encodeAlacFrame_(const int16_t* frames, int nFrames) {
  
  void RaopSender::sendAudioPacket_() {
      int16_t frames[kFramesPerPacket * kChannels];
 -    fillFrames_(frames, kFramesPerPacket);
 +    const size_t got = fillFrames_(frames, kFramesPerPacket);
++    // 聚合统计，不保存音频内容；用于区分采集有声与实际发送有声。
++    static int inputPeak=0, outputPeak=0, missing=0, packets=0;
++    for (int v:frames) inputPeak=std::max(inputPeak,std::abs(v));
++    missing += int(kFramesPerPacket - got);
 +
+ 
 +    // 【欠载后重新布防淡入】—— 与下面「开局淡入」同一套机制，只是触发点不同。
 +    //
 +    // 开局淡入只在 start() 里布防一次，用完（fadeInLeft_ == 0）就不再来。
@@ -262,11 +294,19 @@ index 0e282e1..f389ec4 100644
 +            if (--fadeInLeft_ <= 0) break;
 +        }
 +    }
- 
++
++
++    for (int v:frames) outputPeak=std::max(outputPeak,std::abs(v));
++    if (++packets >= 625) {
++        info_("Cast: audio window inputPeak={} outputPeak={} missingFrames={} queueFrames={}",
++              inputPeak, outputPeak, missing, ring_ ? ring_->availableRead()/2 : 0);
++        packets=0;inputPeak=0;outputPeak=0;missing=0;
++    }
      // 12-byte RTP header (big-endian, shared by AP1 + AP2).
      std::string header;
+     header.reserve(12);
 diff --git a/src/raop_sender.h b/src/raop_sender.h
-index 5560966..985bd73 100644
+index 5560966..73f2a80 100644
 --- a/src/raop_sender.h
 +++ b/src/raop_sender.h
 @@ -142,6 +142,19 @@ public:
@@ -278,7 +318,7 @@ index 5560966..985bd73 100644
 +    // 调小可以降低延迟，但太小会导致接收端 underrun（爆音）。
 +    // 合理范围约 100-2000 ms。
 +    void setLatencyMs(int ms) {
-+        if (ms < 60)    ms = 60;      // 低于 60ms 基本都撑不住
++        if (ms < 1)     ms = 1;      // 低于 60ms 基本都撑不住
 +        if (ms > 1000)  ms = 1000;
 +        // 44100 Hz 下每毫秒 44.1 帧
 +        latency_ = static_cast<uint32_t>(ms * 44100 / 1000);
@@ -320,7 +360,7 @@ index 5560966..985bd73 100644
  
      // -- input conditioning (device rate -> 44.1 kHz) -----------------
 diff --git a/test/core_tests.cpp b/test/core_tests.cpp
-index 0f72065..2455914 100644
+index 0f72065..8e8b3ad 100644
 --- a/test/core_tests.cpp
 +++ b/test/core_tests.cpp
 @@ -648,6 +648,42 @@ std::vector<int16_t> rampExpect(size_t samples, int16_t seed = 0) {
@@ -454,7 +494,7 @@ index 0f72065..2455914 100644
 +        //
 +        // 教训：改实现时，同一补丁里的测试断言必须一起改；
 +        // 只看「补丁能打上」是不够的 —— 那不是「测试通过」。
-+        CHECK(i("controlPort") == 40002 && i("latencyMin") == 11025 && i("latencyMax") == 88200,
++        CHECK(i("controlPort") == 40002 && i("latencyMin") == std::min<int64_t>(int64_t(r.sender->latencyMs()) * 44100 / 1000, 11025) && i("latencyMax") == 88200,
 +              "our control port + latency window (protocol-standard, not derived)");
          CHECK(i("streamConnectionID") == int64_t(sid), "streamConnectionID == the rtsp session id");
          auto* shk = st.find("shk");
@@ -534,7 +574,7 @@ index 0f72065..2455914 100644
      // 10 packets consume 3520 output frames ~ 3831 input frames
      for (int i = 0; i < 10; ++i) r.advance(8);
      dgs = r.io.takeUdp();
-@@ -1447,6 +1531,137 @@ void testResampler() {
+@@ -1447,8 +1531,171 @@ void testResampler() {
  
  } // namespace
  
@@ -669,10 +709,44 @@ index 0f72065..2455914 100644
 +
 +
 +
++void testRequestedLatencyOnWire() {
++    g_test = "requested latency on the encrypted wire";
++    for (int ms : {1, 10, 32, 80, 200, 300}) {
++        Rig r;
++        r.sender->setLatencyMs(ms);
++        runAp2Handshake(r, FakeReceiver::Mode::Ap2Transient, RaopDeviceInfo::Auth::HapTransient);
++        REQUIRE(r.launchedOk && *r.launchedOk, "low latency handshake completes");
++        const Request* setup=r.rx.last("SETUP");
++        REQUIRE(setup, "stream SETUP was received");
++        auto root=airplay::bplist::decode(bytesOf(setup->body));
++        REQUIRE(root, "encrypted stream SETUP decoded");
++        const auto* streams=root->find("streams");
++        REQUIRE(streams && !streams->arr.empty(), "SETUP includes stream");
++        const auto* minimum=streams->arr.front().find("latencyMin");
++        const uint32_t frames=uint32_t(ms)*44100/1000;
++        REQUIRE(minimum, "receiver gets latencyMin");
++        CHECK(minimum->asInt()==std::min<uint32_t>(frames,11025), "configured request reaches latencyMin");
++        bool found=false;
++        for (const auto& packet:r.io.udpOut) {
++            if(packet.s==RaopUdp::Control && packet.data.size()==20) {
++                found=true;
++                CHECK(uint32_t(be32(packet.data,16)-be32(packet.data,4))==frames,
++                      "sync timestamps carry the same requested latency");
++                break;
++            }
++        }
++        CHECK(found,"initial sync packet was emitted");
++        r.sender->stop();
++    }
++}
++
  int main() {
      std::printf("== raop core tests (in-process fake receiver, no sockets) ==\n");
++    testRequestedLatencyOnWire();
      testFormatter();
-@@ -1456,6 +1671,7 @@ int main() {
+     testCredsCodec();
+     testAp1Session();
+@@ -1456,6 +1703,7 @@ int main() {
      testAp2PinPairingThenStoredCredentials();
      testStrictReceiverAuth();
      testFailurePaths();

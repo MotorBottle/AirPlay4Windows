@@ -30,6 +30,18 @@ struct Entry {
 // 词条表
 // ─────────────────────────────────────────────────────────────
 const Entry kEntries[] = {
+    {"系统声音（推荐）", "System audio (recommended)"},
+    {"掉线自动重连", "Reconnect automatically"},
+    {"显示 Apple TV", "Show Apple TV"},
+    {"正在推流", "Streaming"},
+    {"选择扬声器开始播放", "Choose a speaker to start"},
+    {"点击连接", "Click to connect"},
+    {"连接上次的扬声器", "Connect last speaker"},
+    {"或点击右下角重新扫描", "Or scan for speakers below"},
+    {"系统声音", "System audio"},
+    {"暂停", "Pause"},
+    {"继续", "Resume"},
+    {"已暂停", "Paused"},
     // ── 托盘菜单：连接 / 状态 ──
     {"断开", "Disconnect"},
     {"连接", "Connect"},
@@ -43,8 +55,6 @@ const Entry kEntries[] = {
     // 这三条原来以中文字面量硬编码在 push_back 里，没过 tr()，
     // 英文界面会冒出中文。菜单文字不走任何翻译层，必须自己调 tr()。
     {"未找到设备", "No devices found"},
-    {"请确认 HomePod 已通电", "Make sure the HomePod is powered on"},
-    {"且与电脑在同一 WiFi", "and on the same Wi-Fi as this PC"},
 
     // ── 托盘菜单：设备 ──
     {"设备", "Devices"},
@@ -99,7 +109,6 @@ const Entry kEntries[] = {
     {" 台设备", " devices"},
     {"AirPlay Bridge - 扫描中", "AirPlay Bridge - Scanning"},
     {"AirPlay Bridge - 启动失败", "AirPlay Bridge - Startup failed"},
-    {"AirPlay Bridge - 找到 ", "AirPlay Bridge - Found "},
     {"AirPlay Bridge ", "AirPlay Bridge "},
     // ── 状态文案（tooltip 与菜单共用）──
     // 2026-10-18：这几条原来只存在于代码里的裸中文字面量，
@@ -125,10 +134,6 @@ const Entry kEntries[] = {
     // ★ 不能只用「设备」—— 菜单里已有一条同名键（设备列表，英文是 Devices），
     //   查表取第一条，英文界面会显示成 "Devices:"。所以换个不撞的 key。
     {"对端设备", "Device"},
-
-    // ── 气泡：采集端点原本静音、程序自动解除 ──
-    {"电脑输出原本处于静音，已自动解除，否则无法采集声音。",
-     "Computer output was muted; it has been unmuted so audio can be captured."},
 
     // ── 气泡：静音导致采不到声音，已恢复（并指路虚拟声卡） ──
     {"这台电脑在静音时无法采集声音，已自动恢复。想让电脑自己不出声，请安装虚拟声卡（VB-Cable）。",
@@ -259,8 +264,6 @@ const Entry kEntries[] = {
     {"最保守", "Most conservative"},
 
     // ── 滑块窗口：说明文字 ──
-    {"拖到不爆音的最低位置就是最优解。低于 150ms 可能出现爆音，越低延迟越小，但接收端缓冲不足会爆音或卡顿。",
-     "Drag to the lowest position that doesn't crackle. Below 150 ms the receiver's buffer can run dry."},
     {"声卡通常跑 48kHz，推给设备前要先转到 44.1kHz。越往右高频越干净，CPU 也越贵。",
      "Sound cards usually run at 48 kHz and must be converted to 44.1 kHz. Further right is cleaner but costs more CPU."},
     {"调节设备的播放音量，不影响电脑本身的音量。",

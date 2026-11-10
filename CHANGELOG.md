@@ -3,6 +3,66 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.6.1] - 2026-11-11
+
+**中文**
+
+### 新增
+
+- 面板顶部支持拖动，底部增加退出按钮。
+- 设置补齐采集来源、音质、待机、自启、语言、设备显示、重连和诊断。
+
+### 修复
+
+- 暂停推流时恢复本机声音，继续时重新静音本机。
+- 调整设置后保留面板位置。
+
+**English**
+
+### Added
+
+- Drag the panel header to move it; quit directly from the footer.
+- Restore capture, quality, standby, startup, language, device visibility, reconnect and diagnostic settings.
+
+### Fixed
+
+- Restore local sound when pausing; mute it again when resuming.
+- Keep the panel position after changing settings.
+
+## [1.6.0] - 2026-11-11
+
+**中文**
+
+### 新增
+
+- 本机定制测试版：深色设备卡片、直接音量控制和暂停开关。
+
+### 修改
+
+- 优先采集系统进程音频，本机无需虚拟声卡。
+- 延迟滑块开放到 1–300ms，标明其为请求缓冲。
+
+### 修复
+
+- 再次点击托盘可收起面板，设备操作保持面板位置。
+- 面板常开时继续执行后台重连与采集检查。
+
+**English**
+
+### Added
+
+- Local custom test build with dark device cards, direct volume control and a pause switch.
+
+### Changed
+
+- Prefer process audio capture without a virtual cable on supported systems.
+- Open the requested-buffer slider to 1–300ms and distinguish it from measured latency.
+
+### Fixed
+
+- A second tray click hides the panel; device actions retain its position.
+- Reconnection and capture checks continue while the panel stays open.
+
 ## [1.5.58] - 2026-11-07
 
 **中文**

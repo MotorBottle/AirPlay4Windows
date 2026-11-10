@@ -47,7 +47,7 @@ struct WasapiCaptureConfig {
     // 而不是「必须采默认的那一路」。AllDevices 那条路仍未启用。
     std::wstring deviceId;
     uint32_t    targetSampleRate = 44100;
-    uint32_t    bufferMs         = 30;
+    uint32_t    bufferMs         = 3;
 };
 
 class WasapiCapture {
@@ -78,6 +78,7 @@ public:
 
     // 实际打开的设备数（AllDevices 模式下可能大于 1）
     size_t deviceCount() const;
+    bool processLoopback() const;
 
     // 采集到的设备名列表（用于日志）
     std::vector<std::string> deviceNames() const;

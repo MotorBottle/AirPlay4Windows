@@ -1,5 +1,8 @@
 # AirPlay Bridge
 
+> Local custom test build 1.6.1, based on upstream 1.5.58; not an upstream release.
+> The latency slider requests a playback buffer; it does not measure audible latency.
+
 <p align="center">
   <img src="src/icons/preview_connected.png" width="128" alt="AirPlay Bridge">
 </p>
@@ -20,17 +23,10 @@ Installs to `Program Files\AirPlayBridge` with its runtime bundled —
 **upgrades need no reconfiguration**, since the firewall rule and startup entry
 follow that location. Windows may block it once: **More info** → **Run anyway**.
 
-### 🔊 When you need a virtual audio cable
+### 🔊 Local capture
 
-| Your setup | Install it? |
-|---|---|
-| Speakers or headphones that would play the same audio | **Yes**, otherwise the PC plays too (about 200 ms behind — sounds like an echo) |
-| A sound card with nothing plugged in | No, nobody hears it |
-| No playback device listed in Windows | **Yes**, there is nothing to capture |
-
-Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) (free, reboot
-after). On connect the app switches the default device to it, so system audio
-reaches the AirPlay device only. The cable never changes what gets streamed.
+This custom build prefers Windows process loopback, without installing a virtual cable or changing the default output.
+It mutes the local default output while connected and restores it on disconnect. Unsupported systems fall back to endpoint capture.
 
 ## 🚀 First run
 
@@ -45,7 +41,7 @@ reaches the AirPlay device only. The cable never changes what gets streamed.
 - 🆓 Free and open source (Apache-2.0)
 - 🎵 AirPlay 2 with secure pairing (plus legacy AirPlay 1) — HomePod, Apple TV
   and other receivers
-- 🎚 Lossless 16-bit/44.1 kHz; latency (100–300 ms), volume, quality and
+- 🎚 Lossless 16-bit/44.1 kHz; latency (1–300 ms), volume, quality and
   standby are all adjustable
 - 💪 Glitch-resistant under load — audio threads run under MMCSS Pro Audio, and
   Windows 11 keeps the 1 ms timer even in the background
@@ -68,32 +64,26 @@ reaches the AirPlay device only. The cable never changes what gets streamed.
 
 ## 🖱 Usage
 
-Left- or right-click the tray icon:
+Click the tray icon to open the dark panel; click again or press Esc to hide it.
 
-```
-✓ Connected
-  <device name> / <device IP>
-────────────────
-  Disconnect
-  Devices  ›     ← devices found, Scan again, Hide devices, Capture from
-  Latency  200ms  ›
-  Volume  45%  ›
-  Quality  Maximum  ›
-────────────────
-  More settings  ›  ← Connection check, Standby when silent, Mute this PC,
-                      Run at startup, Language, Logs
-  About
-────────────────
-  Quit
-```
+| Control | Action |
+|---|---|
+| Device card | Connect; click the current device again to disconnect |
+| Top switch | Pause and restore local sound; resume and mute the local output |
+| Drag the header | Move the panel |
+| Quit button | Exit and restore local sound |
+| Volume slider | Change receiver volume immediately; arrow keys fine-tune |
+| Latency button | Set the requested buffer and reconnect |
+| Refresh | Scan and update the device list |
+| Settings | Capture source, quality, standby, local mute, startup, language, device visibility, reconnect, diagnostics and logs |
 
-When the rule is fine, **More settings › Connection check** says so.
+The table below retains upstream configuration presets for reference; the custom panel exposes continuous volume and latency controls.
 
 ## 🎛 Adjustable
 
 | Item | Presets | Range | Applies |
 |---|---|---|---|
-| Latency | 130 / 150 / **200** / 250 / 300 ms | continuous slider (100–300) | on reconnect |
+| Latency | 130 / 150 / **200** / 250 / 300 ms | continuous slider (1–300) | on reconnect |
 | Volume | Off / 30% / 50% / 70% / 100% | continuous slider (0–100) | immediately |
 | Quality | Fast / Standard / High / Very high / Maximum | continuous slider (0–100) | on reconnect |
 | Standby when silent | 5 / 10 / 15 / 20 / 30 / 60 / 120 / 300 s | continuous slider (0–300) | immediately |

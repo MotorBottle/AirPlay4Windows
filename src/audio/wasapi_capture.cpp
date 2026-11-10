@@ -34,6 +34,8 @@
 #include <vector>
 
 #include <wrl/client.h>
+#include <wrl/implements.h>
+#include <audioclientactivationparams.h>
 using Microsoft::WRL::ComPtr;
 
 namespace fxchain {
@@ -96,6 +98,25 @@ std::string wideToUtf8(const wchar_t* w) {
 //   打点删掉后它没有调用点了，而且带 CreateDirectoryA 副作用。
 //   2026-10-18 连同打点一起清掉。）
 
+// 异步激活对象持有自己的事件；超时后回调仍可安全结束。
+class ProcessActivation final : public Microsoft::WRL::RuntimeClass<
+    Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+    IActivateAudioInterfaceCompletionHandler, Microsoft::WRL::FtmBase> {
+public:
+    HANDLE done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    HRESULT result = E_PENDING;
+    ComPtr<IAudioClient> client;
+    ~ProcessActivation() { if (done) CloseHandle(done); }
+    HRESULT STDMETHODCALLTYPE ActivateCompleted(IActivateAudioInterfaceAsyncOperation* op) override {
+        ComPtr<IUnknown> object;
+        HRESULT activated = E_FAIL;
+        result = op->GetActivateResult(&activated, &object);
+        if (SUCCEEDED(result)) result = activated;
+        if (SUCCEEDED(result)) result = object.As(&client);
+        SetEvent(done);
+        return S_OK;
+    }
+};
 // ---- 单台设备的采集 ----
 struct DeviceCapture {
     ComPtr<IMMDevice>           device;
@@ -117,6 +138,38 @@ struct DeviceCapture {
         if (event)     CloseHandle(event);
     }
 
+    bool processMode = false;
+    bool openProcess() {
+        auto completion = Microsoft::WRL::Make<ProcessActivation>();
+        if (!completion || !completion->done) return false;
+        AUDIOCLIENT_ACTIVATION_PARAMS params{};
+        params.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
+        params.ProcessLoopbackParams.TargetProcessId = GetCurrentProcessId();
+        params.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
+        PROPVARIANT value{};
+        value.vt = VT_BLOB;
+        value.blob.cbSize = sizeof(params);
+        value.blob.pBlobData = reinterpret_cast<BYTE*>(&params);
+        ComPtr<IActivateAudioInterfaceAsyncOperation> operation;
+        HRESULT hr = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+            __uuidof(IAudioClient), &value, completion.Get(), &operation);
+        if (FAILED(hr) || WaitForSingleObject(completion->done, 5000) != WAIT_OBJECT_0 ||
+            FAILED(completion->result)) return false;
+        client = completion->client;
+        mixFormat = static_cast<WAVEFORMATEX*>(CoTaskMemAlloc(sizeof(WAVEFORMATEX)));
+        if (!mixFormat) return false;
+        *mixFormat = {WAVE_FORMAT_PCM, 2, 44100, 176400, 4, 16, 0};
+        hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
+            AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, 0, 0, mixFormat, nullptr);
+        if (FAILED(hr)) return false;
+        event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!event || FAILED(client->SetEventHandle(event)) ||
+            FAILED(client->GetService(IID_PPV_ARGS(&capture)))) return false;
+        processMode = true;
+        name = "System audio (pre-endpoint process loopback)";
+        return true;
+    }
     bool open(const ComPtr<IMMDevice>& dev, std::string& err) {
         device = dev;
 
@@ -135,7 +188,7 @@ struct DeviceCapture {
         hr = client->GetMixFormat(&mixFormat);
         if (FAILED(hr)) { err = "GetMixFormat failed"; return false; }
 
-        const REFERENCE_TIME dur = 30 * 10000;   // 30ms
+        const REFERENCE_TIME dur = 10 * 10000;   // 端点回退路径请求 10ms
         hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
                                 AUDCLNT_STREAMFLAGS_LOOPBACK |
                                     AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
@@ -301,6 +354,17 @@ bool WasapiCapture::open(std::string* errOut) {
     }
     stopRequested_.store(false);
 
+    // 默认采集系统混音，位于物理端点静音之前，不创建或切换虚拟声卡。
+    if (cfg_.deviceId.empty() && cfg_.mode == CaptureMode::DefaultOnly) {
+        auto dc = std::make_unique<DeviceCapture>();
+        if (dc->openProcess()) {
+            impl_->rate = dc->mixFormat->nSamplesPerSec;
+            impl_->devices.push_back(std::move(dc));
+            impl_->queues.push_back(std::make_unique<DeviceQueue>());
+            return true;
+        }
+        if (errOut) *errOut += "Process loopback unavailable; endpoint fallback;";
+    }
     std::vector<ComPtr<IMMDevice>> targets;
     // 配置端点打不开时允许回退系统默认（DefaultOnly 且真用上了配置端点）。
     bool configuredFallback = false;
@@ -395,6 +459,9 @@ bool WasapiCapture::open(std::string* errOut) {
     return true;
 }
 
+bool WasapiCapture::processLoopback() const {
+    return impl_ && !impl_->devices.empty() && impl_->devices[0]->processMode;
+}
 size_t WasapiCapture::deviceCount() const {
     return impl_ ? impl_->devices.size() : 0;
 }

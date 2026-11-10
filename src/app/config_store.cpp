@@ -343,11 +343,11 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     // 读进来就钳到可用范围。
     // 上游 setVolume/setLatencyMs 各自也会钳，但菜单标题显示的是这里的原值 ——
     // 不钳的话会出现「菜单写着 9999ms、实际按 1000ms 播」，显示和实际不一致。
-    // 音量与菜单一致（0-100）；延迟的钳制范围（100-1000）故意比菜单（100-300）
+    // 音量与菜单一致（0-100）；延迟的钳制范围（1-1000）故意比滑块（1-300）
     // 宽 —— 它只是防脏数据的兜底，不是可选项列表。写「与菜单一致」是错的。
     if (out.volume < 0)      out.volume = 0;
     if (out.volume > 100)    out.volume = 100;
-    if (out.latencyMs < 100) out.latencyMs = 100;
+    if (out.latencyMs < 1) out.latencyMs = 1;
     if (out.latencyMs > 1000) out.latencyMs = 1000;
     // 新的连续品质字段
     if (j.find("\"qualityLevel\"") != std::string::npos) {
