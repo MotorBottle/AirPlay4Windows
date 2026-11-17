@@ -1,85 +1,56 @@
-# AirPlay Bridge
-
-> Local custom test build 1.6.4, based on upstream 1.5.58; not an upstream release.
-> The latency slider requests a playback buffer; it does not measure audible latency.
-
-<p align="center">
-  <img src="src/icons/preview_connected.png" width="128" alt="AirPlay Bridge">
-</p>
+# AirPlay4Windows
 
 **English** · [中文](README.zh-CN.md)
 
-Streams Windows system audio to AirPlay 2 devices, from the tray. A free,
-open-source replacement for TuneBlade after HomePod OS 27 — covers HomePod,
-Apple TV and other receivers.
+Stream Windows system audio to HomePod and other AirPlay 2 receivers from a compact tray panel.
 
-## 📦 Install
+This is [MotorBottle](https://github.com/MotorBottle)'s UI and user-experience fork of
+[AirPlay Bridge by RiverFlowsInUUU](https://github.com/RiverFlowsInUUU/AirPlay-Bridge), based on **v1.5.58**.
+The original application and protocol work belong to their respective authors. This fork is not an upstream release.
 
-Download `AirPlay-Bridge-Setup-vX.Y.Z.exe` from
-[Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest)
-and run it. Windows 10 / 11, 64-bit.
+## Install
 
-Installs to `Program Files\AirPlayBridge` with its runtime bundled —
-**upgrades need no reconfiguration**, since the firewall rule and startup entry
-follow that location. Windows may block it once: **More info** → **Run anyway**.
+- Windows 10 / 11, 64-bit; process loopback requires a supported Windows build.
+- Fork packages, when published, appear in [this repository's Releases](https://github.com/MotorBottle/AirPlay4Windows/releases).
+- No fork installer has been published yet. Build instructions: [Development](docs/DEVELOPMENT.md).
+- Upstream installers do **not** include this fork's panel and interaction changes.
+- The executable and installed application still use the name **AirPlay Bridge**.
 
-### 🔊 Local capture
+## What this fork changes
 
-This custom build prefers Windows process loopback, without installing a virtual cable or changing the default output.
-It mutes the local default output while connected and restores it on disconnect. Unsupported systems fall back to endpoint capture.
+The main focus is **UI and everyday usability**, with supporting audio and latency adjustments.
 
-## 🚀 First run
+- A single dark panel with device cards, a streaming switch and a directly draggable volume slider.
+- No taskbar button for the panel; drag its header to move it, click outside or press Esc to dismiss it.
+- Settings stay accessible without making the panel disappear; matching refresh, settings and power icons.
+- Pause, disconnect and exit restore local audio when the app owns the mute state; resume mutes it again.
+- Default capture prefers process loopback without installing a virtual cable or switching the default output. Selecting a specific output uses endpoint capture.
+- Adjustable requested buffer (1–300 ms), receiver-volume control and a fix for silence falsely disabling local muting.
 
-- Asks for interface language and whether to start at login (once each)
-- Scans the local network, connects what it finds, and checks the firewall rule
-  (one-click fix if it's missing)
+<p align="center">
+  <img src="docs/images/panel.jpg" width="440" alt="Dark tray panel with a HomePod device card, volume slider and footer controls">
+</p>
 
-## ✨ Features
+Actual panel rendering in a silent preview with an example device. The screenshot is not a latency measurement.
 
-**Audio & connection**
+## Usage
 
-- 🆓 Free and open source (Apache-2.0)
-- 🎵 AirPlay 2 with secure pairing (plus legacy AirPlay 1) — HomePod, Apple TV
-  and other receivers
-- 🎚 Lossless 16-bit/44.1 kHz; latency (1–300 ms), volume, quality and
-  standby are all adjustable
-- 💪 Glitch-resistant under load — audio threads run under MMCSS Pro Audio, and
-  Windows 11 keeps the 1 ms timer even in the background
-
-**Reliability**
-
-- 🔄 Auto-reconnect — after drops, IP changes, or when another device takes over
-- ⏰ Sleep/wake — streaming resumes on its own after the PC wakes
-- 🛟 Force-kill safe — audio device and mute state are restored on next launch
-- 💾 Config written atomically, auto-recovered from a backup if corrupted
-- 🩺 Capture watchdog — an unplugged or busy device falls back or reconnects
-
-**Everyday use**
-
-- 🔎 Finds AirPlay devices, 🙈 hides the ones you don't want
-- 🔇 Mutes this PC on connect, and restores the right device afterwards
-- 😴 Standby when silent — screen off, back on the first sound
-- 🖥 Starts at login, remembers settings, one instance at a time
-- 🌐 English or Chinese; ℹ️ version and update check under **About**
-
-## 🖱 Usage
-
-Click the tray icon to open the dark panel; click elsewhere, click the icon again, or press Esc to hide it.
+Click the tray icon to open the panel; click again, click elsewhere or press Esc to hide it.
 
 | Control | Action |
 |---|---|
 | Device card | Connect; click the current device again to disconnect |
 | Top switch | Pause and restore local sound; resume and mute the local output |
-| Drag the header | Move the panel |
-| Power icon | Exit and restore local sound |
+| Header | Drag to move the panel |
 | Volume slider | Change receiver volume immediately; arrow keys fine-tune |
 | Latency button | Set the requested buffer and reconnect |
-| Refresh | Scan and update the device list |
+| Refresh | Disconnect, scan and update the device list |
 | Settings | Capture source, quality, standby, local mute, startup, language, device visibility, reconnect, diagnostics and logs |
+| Power icon | Exit and restore local sound |
 
-The table below retains upstream configuration presets for reference; the custom panel exposes continuous volume and latency controls.
+## Adjustable
 
-## 🎛 Adjustable
+Upstream presets remain available; the panel also provides continuous controls.
 
 | Item | Presets | Range | Applies |
 |---|---|---|---|
@@ -88,49 +59,50 @@ The table below retains upstream configuration presets for reference; the custom
 | Quality | Fast / Standard / High / Very high / Maximum | continuous slider (0–100) | on reconnect |
 | Standby when silent | 5 / 10 / 15 / 20 / 30 / 60 / 120 / 300 s | continuous slider (0–300) | immediately |
 
-Bold marks the default. Latency below 250 ms risks crackling; 250 ms is the
-tested sweet spot and 130 ms is experimental. Standby at 0 turns it off.
+Bold marks the default. Standby at 0 turns it off. Buffer settings are **not measured end-to-end latency**.
+Lower values can crackle; a setting that works on one machine is not a guarantee for other hardware or networks.
 
-## 🔇 No sound
+## Current limitations
 
-1. Confirm the tray menu shows **Connected**
-2. Check the default playback device in Windows sound settings
-3. Tray menu → More settings → Logs
+Device discovery is retained from upstream and is **not currently scheduled for further work in this fork**.
+Contributions are welcome through [pull requests](https://github.com/MotorBottle/AirPlay4Windows/pulls), or you can maintain your own fork.
 
-## ⏳ Stuck on "Connecting"
-
-The receiver calls back into this PC for clock sync, so the app needs an inbound
-firewall rule. It checks this at startup:
-
-| Step | Action |
+| Area | Current behavior / limitation |
 |---|---|
-| 1 | Tray menu → More settings → Connection check |
-| 2 | Approve the admin prompt |
+| Discovery | Scans TCP port 7000 on one active adapter's IPv4 /24 subnet, then queries candidates using unicast mDNS. Multiple adapters, other subnets, IPv6-only receivers or other ports may be missed. |
+| Remembered device | Startup prefers the last IP. If no receiver ID was saved, identity relies mainly on that address; name alone is not a reliable identity check. |
+| Identity mismatch | If the queried ID differs from the remembered ID, the direct-connect path logs a warning but does not reject the target. |
+| Automatic selection | A scan prefers the remembered ID, then the only device, then the first HomePod, then the first remaining device. It may select another receiver when the previous one is absent. |
+| Refresh | Interrupts streaming to scan; it is not a background-only list refresh. |
+| Audio compatibility | Process capture depends on Windows support; endpoint capture may be affected by the sound driver. Silent input alone does not establish mute compatibility. |
+| Latency and coverage | Quality/latency changes reconnect. Testing has focused on one Windows PC and a HomePod mini; other combinations are not broadly validated. |
+| Updates | The in-app update check still targets upstream releases, not this fork. Follow this repository for fork updates. |
 
-By hand: Windows Security → Firewall & network protection → Allow an app
-through firewall → AirPlay Bridge → tick **Private**. Not listed? **Allow
-another app** → **Browse**.
+## Troubleshooting
 
-## ⚠️ Known limitations
+| Symptom | Check |
+|---|---|
+| No sound | Panel connection state, receiver volume, Windows playback device and Settings → Logs |
+| Stuck connecting | Settings → Connection check; allow the app's local-network firewall rule if missing |
+| Crackling | Increase the requested buffer; check Wi-Fi stability |
 
-- Without a virtual audio cable, sound stays on this PC's output device (muted
-  by default — switchable from the menu)
-- Changing latency or quality requires one reconnect
-- Windows only
-- A few seconds of silence after a drop
+## History and contribution
 
-## 🔗 Related
+- [Fork changes and provenance](docs/FORK.md)
+- [Complete changelog](CHANGELOG.md), retaining upstream entries
+- [Commit history](https://github.com/MotorBottle/AirPlay4Windows/commits/master/), retaining original authors and individual fork commits
+- [Development](docs/DEVELOPMENT.md) · [Repository guidance](AGENTS.md)
 
-- Report a problem → [Issues](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/issues)
-- Change log → [CHANGELOG.md](CHANGELOG.md)
-- Development docs → [AGENTS.md](AGENTS.md) · [docs/](docs/)
+Please report fork-specific panel and interaction problems here, not to the upstream author.
+There is no commitment to implement every request or maintain broad device compatibility.
 
-## 🙏 Credits
+## Credits and license
 
-- [airplay2-sender-cpp](https://github.com/akustikrausch/airplay2-sender-cpp) — AirPlay 2 protocol (Apache-2.0)
-- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — cryptography
-- [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) — virtual audio device
+- **[RiverFlowsInUUU / AirPlay Bridge](https://github.com/RiverFlowsInUUU/AirPlay-Bridge)** — original Windows application and foundation of this fork.
+- **[MotorBottle](https://github.com/MotorBottle)** — this fork's UI, interaction and everyday-use improvements.
+- **[Andreas Wendorf / airplay2-sender-cpp](https://github.com/akustikrausch/airplay2-sender-cpp)** — AirPlay protocol engine.
+- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — cryptography; see the protocol engine's third-party notices for additional credits.
+- [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) — optional audio-routing tool referenced by upstream; not required for the preferred capture path here.
 
-## 📄 License
-
-Apache-2.0
+[Apache-2.0](LICENSE). Existing copyright and license notices are retained; see [NOTICE](NOTICE).
+AirPlay and HomePod are Apple trademarks. This is an independent project, not affiliated with or endorsed by Apple or the upstream authors.

@@ -1,0 +1,20 @@
+AirPlay4Windows
+
+This fork is based on AirPlay Bridge by RiverFlowsInUUU:
+https://github.com/RiverFlowsInUUU/AirPlay-Bridge
+Base version: v1.5.58, commit fc6ef4150adf335c19bed75870fa90c1bbf0e2b3.
+Original source history, author attribution and Apache-2.0 license are retained.
+
+MotorBottle's fork focuses on UI and user experience, with supporting capture,
+volume, local-mute and requested-buffer changes. See docs/FORK.md and CHANGELOG.md.
+These modifications are not an official upstream release or endorsement.
+
+This product includes airplay2-sender-cpp by Andreas Wendorf (Akustikrausch).
+Copyright 2026 Andreas Wendorf (Akustikrausch).
+The protocol engine is licensed under Apache-2.0 and contains additional
+third-party components with their own licenses. Preserve its complete notices:
+third_party/airplay2-sender-cpp/NOTICE
+third_party/airplay2-sender-cpp/licenses/THIRD-PARTY-NOTICES.txt
+
+AirPlay and HomePod are trademarks of Apple Inc. This independent project is
+not affiliated with, authorized or endorsed by Apple Inc.

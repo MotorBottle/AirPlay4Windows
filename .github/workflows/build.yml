@@ -44,7 +44,7 @@ jobs:
             fi
           done <<'MARKERS'
                stream.emplace_back("latencyMax", Value::integer(88200));
-               stream.emplace_back("latencyMin", Value::integer(11025));
+          +    stream.emplace_back("latencyMin", Value::integer(std::min<uint32_t>(latency_, 11025)));
           +    void setLatencyMs(int ms) {
           +        ap2_->eventIn  = hkdfSha512("Events-Salt",
           MARKERS
