@@ -410,51 +410,15 @@ bool fetchLatestRelease(std::string& tag, std::string& url) {
 // 偏高则会「有声音也待机」（用户没有别的办法，只能关掉待机）。
 constexpr int kSilencePeak = 5;
 
-// 「静音后采集不到电平」要连续几个 5 秒窗口才撤销静音。
-//
-// ★ 2026-10-30 由 6 改成 1：6 个窗口 = 30 秒，而默认待机是 20 秒 ——
-//   「等到第 30 秒发现问题」和「第 20 秒就被待机拆掉」永远差一截，
-//   用户看到的是「连上没声音 → 断 → 再连」的死循环，且每次都要重来。
-//   等一个窗口（5 秒）就足够判定：物理端点在静音后环回直接归零
-//   （实测 Realtek：静音时 0，解除后 11669），不存在"静了几秒才归零"的过渡。
-//   代价是：待机关闭、用户又恰好在静音后 5 秒内暂停时，会误撤销一次静音 ——
-//   那种情况下本机扬声器恢复发声，但因为没有在播放，用户听不到任何东西。
-constexpr int kMuteNoSignalPasses = 1;
-
-// 「静音后采集不到电平」的连续窗口计数（主循环专用，仅主线程读写）。
-int muteNoSignalPasses = 0;
 // 上一窗口「有声吗」—— 电平日志只在翻转时记（P2-3）。
 bool lastLevelLoud = false;
-
-// 已经因为「采集不到电平」放弃过静音：本次进程内不再自动静音。
-//
-// 不加这个 latch 的话，会话一重建（被踢、掉线重连）就会又静上，
-// 再等一个窗口再撤销，表现成静音开关来回抖。
-// 只影响「自动静音」，用户手动在菜单里开关仍然生效。
-bool muteGaveUp = false;
 
 // 「采集端点原本是静音，已自动解除」这条气泡说过没有（只主线程读写）。
 // 只影响提示次数：冷却期过去后再次静音仍会静默自愈，只是不再打扰用户。
 bool muteHealNotified = false;
 
-// 「这台电脑静音后采不到声音，请装虚拟声卡」这条气泡说过没有。
-// 和上一条分开记：用户可能先遇到"端点本来就是静的"，再遇到"我们静了却采不到"，
-// 两件事的原因不同，各说一次才讲得清。
-bool muteAdviceShown = false;
-
 // 「没找到虚拟声卡，电脑会和设备同时出声」这条气泡说过没有。
 bool takeoverAdviceShown = false;
-
-// 本次静音是否发生在「待机唤醒」建起的会话里。
-// 唤醒说明用户正在播放 —— 这条判据把「静音后第一个窗口就无电平」
-// 变成足以定案的证据，不必等 30 秒（默认 5 秒待机根本等不到）。
-bool muteFromWake = false;
-
-// 「静音后仍有电平」那条诊断日志说过没有（每次静音重置）。
-//
-// 独立于 muteFromWake：后者决定判据严不严（1 窗口 / 6 窗口），
-// 不能为了少写日志把它清掉，否则会把判据悄悄降级。
-bool muteNoSignalLogged = false;
 
 BOOL WINAPI onCtrl(DWORD sig) {
     if (sig == CTRL_C_EVENT || sig == CTRL_BREAK_EVENT || sig == CTRL_CLOSE_EVENT) {
@@ -2455,13 +2419,6 @@ struct Session {
     // 「没放音乐却反复唤醒」时，看这个数是几十还是上万，能立刻分清
     // "噪声误触发" 和 "真的有音频在走"（2026-10-30 排查用）。
     std::atomic<int>  standbyWakePeak{0};
-    // 本次会话是「待机唤醒」建起来的吗。
-    //
-    // 能唤醒说明 standbyEar 刚听到声音 —— 用户此刻**正在播放**。
-    // 这种会话里静音后第一个 5 秒窗口就没电平，只能是驱动把环回一起静掉了；
-    // 而暂停播放不会产生唤醒，所以这条判据天然不会误伤。
-    // 用于「静音掐断采集」的检测，见主循环 5 秒健康检查那段。
-    std::atomic<bool> muteCheckFromWake{false};
     // 最近一次"有声音"的 steady_clock 毫秒时间戳。
     // 初值 0 是"从没响过"，主循环会立刻判成静音 —— 所以连接成功时
     // 必须重置为当前时间（见 ev.launched）。
@@ -3026,17 +2983,6 @@ struct Session {
         // 下一个检查点会把这个健康的会话当成"待重连"再拆一次，
         // 表现为约 5 秒闪断一次。
         wantReconnect.store(false);
-        // ★ muteCheckFromWake 也要清。
-        //
-        //   它只在「静音成功」那一刻被消费（一次性）。如果唤醒后连接失败
-        //   （接收端忙、已断电），标志会滞留，然后在下一次**不相干的**
-        //   会话里以 1 窗口阈值参与判定 —— 把误撤销面放大到那些
-        //   本来该走 6 窗口判据的场景。
-        //   放在 teardown 而不是 start：start 开头就调 clearStandbyState()，
-        //   而唤醒路径是「先 leaveStandby() 置位、再 tryConnect → start()」，
-        //   在 start 里清等于刚置上就抹掉。
-        //   （2026-10-24 第三次复查指出标志无清理路径。）
-        muteCheckFromWake.store(false);
         producer = std::thread();   // 清掉已 join 的线程句柄
         sender.reset();
         loop.reset();
@@ -3785,7 +3731,7 @@ int main(int argc, char** argv) {
         logLine(forLog);
     };
     // 连接、暂停和本机静音设置共用同一条恢复路径。
-    auto updateLocalMute = [&cfg, &cfgPath, &sess](bool sending) {
+    auto updateLocalMute = [&cfg, &cfgPath](bool sending) {
         // 连接时静音电脑自己的扬声器，断开时恢复。
         //
         // 三条边界：
@@ -3801,11 +3747,9 @@ int main(int argc, char** argv) {
         //  3. 恢复只看 g_mutedByUs，不受开关影响 —— 用户中途关掉开关时，
         //     已经静音的端点也必须还回去。
         if (sending) {
-            // muteGaveUp：本次运行已经因为「静音后采不到电平」放弃过自动静音，
-            // 不再重试 —— 否则会话一重建就又静上，来回抖。
             if (cfg.muteLocalOnConnect && !g_takeoverActive.load() &&
                 cfg.preCaptureDevice.empty() &&
-                !muteGaveUp && !g_mutedByUs.load()) {
+                !g_mutedByUs.load()) {
                 g_wasMutedBefore.store(isSystemMuted());
                 // ★ 端点 id 拿不到就**不静音**（2026-10-30 实测事故）。
                 //   静音只作用于「当时的默认端点」，而恢复必须按 id 找回 ——
@@ -3819,36 +3763,8 @@ int main(int argc, char** argv) {
                 if (!g_wasMutedBefore.load() && !muteTargetId.empty() &&
                     setSystemMuted(true)) {
                     g_mutedByUs.store(true);
-                    // 记下「这次静音是发生在唤醒会话里吗」。
-                    // 唤醒 = 用户正在播放，静音后第一个窗口无电平即可断定
-                    // 驱动把环回也静掉了（见主循环健康检查那段）。
-                    muteFromWake = sess.muteCheckFromWake.load();
-                    sess.muteCheckFromWake.store(false);   // 一次性
-                    // 新的一次静音 = 新的一轮观测，那条诊断日志可以再说一次。
-                    muteNoSignalLogged = false;
-                    // ★★ 必须在这里把峰值累积清零 —— 这是整个判据能否生效的前提。
-                    //
-                    //   g_peakWindowMax 是 producer 线程**无条件**累积的
-                    //   （见上面那行），而 start() 的顺序是
-                    //     开采集(:2186) → 起 producer(:2352) → 握手(:2419)
-                    //   —— 采集和累积都**早于**握手完成。
-                    //   而静音发生在 launched(true) 里，也就是握手之后。
-                    //
-                    //   于是静音那一刻，g_peakWindowMax 里已经攒着握手期间
-                    //   （0.5~2 秒）的**静音前响亮帧**。不清它的话，连接后的
-                    //   第一个 5 秒窗口必然读到 pk >= kSilencePeak，
-                    //   计数器被重置成 0 —— 而默认待机也是 5 秒，
-                    //   第二个"干净"窗口永远晚于拆会话。
-                    //   结果：判据在默认配置下**确定性失效**，循环照旧。
-                    //   （2026-10-24 第三次复查指出；前两次分别败于
-                    //     条件互斥、计数攒不齐，这次败于窗口没锚定到事件。）
-                    //
-                    //   清零后第一个窗口只含静音后的电平：
-                    //     fromWake 会话 → pk=0 → 计数 1 ≥ need=1 → 立刻撤销，
-                    //     且发生在 t1 < 静音+5s，恒早于待机拆会话。
-                    g_peakWindowMax.store(0);
                     // ★ 记下「静的是哪个端点」—— 恢复要按 id 找回。
-                    //   setSystemMuted 操作的是**取的那一刻的默认端点**：
+                    //   setSystemMuted 操作的是取的那一刻的默认端点：
                     //   会话中途用户换了默认设备（或拔出触发自动迁移），
                     //   断开时的「默认」已不是现在静的这个 —— 按默认恢复
                     //   会打在别人的端点上（原来那个永久静着，新默认上
@@ -3859,6 +3775,10 @@ int main(int argc, char** argv) {
                     cfg.localMutedByUs = true;
                     saveConfig(cfgPath, cfg);
                     logLine("已静音电脑扬声器（断开时自动恢复）");
+                } else if (!g_wasMutedBefore.load()) {
+                    logLine(muteTargetId.empty()
+                        ? "自动静音失败：无法取得默认输出端点 id，未改变恢复标记"
+                        : "自动静音失败：Windows 端点静音调用失败，未改变恢复标记");
                 }
             }
         } else if (g_mutedByUs.load()) {
@@ -4703,7 +4623,6 @@ int main(int argc, char** argv) {
                 if (id == MENU_MUTE_LOCAL) {
                     cfg.muteLocalOnConnect = !cfg.muteLocalOnConnect;
                     saveConfig(cfgPath, cfg);
-                    if (cfg.muteLocalOnConnect) muteGaveUp = false;
                     updateLocalMute(cfg.muteLocalOnConnect && sess.connected.load() && !g_paused);
                     return;
                 }
@@ -5006,115 +4925,7 @@ int main(int argc, char** argv) {
                         lastLevelLoud = loudNow;
                     }
 
-                    // ★ 采集端点在静音后还采不采得到东西，**是驱动相关的**：
-                    //   WASAPI loopback 一般在端点静音之前抽信号（我们实测过，
-                    //   静音后峰值 11226/11629/11653 基本不变），但 TuneBlade 的
-                    //   FAQ 与部分声卡驱动里，静音会让环回停止供数或输出全零。
-                    //   一旦如此，后果是自我维持的循环：
-                    //     静音 → peak 恒 0 → 静音待机计时到期 → 拆会话
-                    //     → 断开时撤销静音 → 本机发声 → 唤醒重连 → 又静音
-                    //   每「待机秒数 + 重连时间」循环一次，接收端周期性无声。
-                    //
-                    // ★★ 第一版这段是错的，别再犯（2026-10-24 复查指出）：
-                    //   当时只写了「连续 6 个 5 秒窗口无电平」一条判据，还加了
-                    //   !standbyActiveConfig(cfg) 做防误伤。可这个循环**恰恰只在
-                    //   待机开启时存在**（拆会话那一步就是待机），而待机默认
-                    //   开着（standbyEnabled=true、5 秒）——
-                    //     ① 默认配置下 !standbyActiveConfig 恒假，一次都不执行
-                    //     ② 就算去掉它，5 秒待机就把 running 打成 false，
-                    //        计数器每轮清零，30 秒永远攒不齐
-                    //   防误伤的判据（待机开着）与检查生效的条件（待机关着）
-                    //   恰好互斥 —— 等于没修。
-                    //
-                    //   现在的判据分两种场景，覆盖真正的循环：
-                    //
-                    //   【甲】待机**开着**（默认）：只看「刚从待机唤醒」的会话。
-                    //     能唤醒说明 standbyEar 刚听到声音 —— 用户此刻**正在播放**，
-                    //     不是暂停。这种情况下静音后第一个 5 秒窗口就没电平，
-                    //     唯一的解释是驱动把环回一起静掉了。默认 5 秒待机意味着
-                    //     必须在**第一个窗口**就动手，等 30 秒循环早发生了。
-                    //     暂停时不产生唤醒，所以天然不会误伤。
-                    //
-                    //   【乙】待机**关着**：没有待机路径可走，回到连续窗口判据。
-                    //     这种配置下「暂停 ≥30 秒」确实会被误撤销 —— 接受它：
-                    //     静音本来就是为了不打扰，而这里根本没在播放，撤销的
-                    //     代价只是扬声器出声，比整机周期断连轻得多。
-                    if (cfg.muteLocalOnConnect && g_mutedByUs.load() &&
-                        !(sess.capture && sess.capture->processLoopback()) &&
-                        sess.running.load() && sess.connected.load()) {
-                        const bool fromWake = muteFromWake;
-                        const int  need = fromWake ? 1 : kMuteNoSignalPasses;
-                        if (pk < kSilencePeak) {
-                            ++muteNoSignalPasses;
-                        } else {
-                            // 窗口里有电平 → 说明静音**没有**掐断采集
-                            // （要么驱动不受影响，要么判据被静音前的音频污染）。
-                            // 留一条日志是为了现场取证：用户报"还是在断连"时，
-                            // 日志里能看到峰值，一眼分辨是哪种情况 ——
-                            // 这两种的修法完全不同。
-                            //
-                            // ★ 每次静音只记一次。
-                            //
-                            //   第一版这里写着「正常播放不会走这里（外层要求
-                            //   g_mutedByUs）」—— **那句注释是错的**：
-                            //   g_mutedByUs 恰恰在这个功能**正常工作**期间恒为真，
-                            //   而"撤销永不发生"是健康机器的常态。
-                            //   于是健康驱动 + 默认配置的用户，每次暂停后唤醒，
-                            //   之后每个有声音的 5 秒窗口都会命中外层条件，
-                            //   一小时能刷 ~720 条同样的日志。
-                            //   （2026-10-24 第三次复查指出 —— 与上一轮
-                            //     muteGaveUp 文档承诺是同一个错：把"需要静音相关"
-                            //     当成了"正常状态不会发生"。发生在同一份提交里。）
-                            //
-                            // ★ 用独立的 once 标志，**不能清 muteFromWake**。
-                            //   muteFromWake 还决定着 need（1 窗口还是 6 窗口）：
-                            //   清掉它等于把本次静音的判据从 1 降级到 6，
-                            //   下次真出问题时反而要多等 30 秒。
-                            //   两个语义分开：一个管"判据多严"，一个管"日志说过没有"。
-                            if (fromWake && pk >= kSilencePeak && !muteNoSignalLogged) {
-                                logLine("静音后窗口仍有电平（峰值 " +
-                                        std::to_string(pk) +
-                                        "）—— 这台机器的采集不受静音影响，"
-                                        "无需撤销静音");
-                                muteNoSignalLogged = true;   // 只记一次
-                            }
-                            muteNoSignalPasses = 0;
-                        }
-                        if (muteNoSignalPasses >= need) {
-                            muteNoSignalPasses = 0;
-                            // 撤销按静音时记下的端点 id 找回（N3）。
-                            if (setSystemMutedOn(false, cfg.localMutedEndpointId)) {
-                                g_mutedByUs.store(false);
-                                cfg.localMutedEndpointId.clear();
-                                // ★ latch：本次进程内不再自动静音。
-                                //   不加这个的话，会话一重建（被踢、重连）就
-                                //   又静上，再等一个窗口再撤销，来回抖。
-                                muteGaveUp = true;
-                                if (cfg.localMutedByUs) {
-                                    cfg.localMutedByUs = false;
-                                    saveConfig(cfgPath, cfg);
-                                }
-                                logLine(fromWake
-                                    ? "待机唤醒后静音状态下采不到任何电平 —— "
-                                      "这台机器的驱动会把环回一起静掉。"
-                                      "已撤销静音，本次运行不再自动静音。"
-                                    : "采集端点在静音后收不到电平 —— "
-                                      "这台机器的驱动会把环回一起静掉。"
-                                      "已撤销静音，本次运行不再自动静音。");
-                                // 只写日志等于没说：用户看到的是「连上了没声音」，
-                                // 不会去翻日志。这里用气泡把原因和出路讲清楚，
-                                // 一次就够（本次运行只弹一次）。
-                                if (!muteAdviceShown) {
-                                    muteAdviceShown = true;
-                                    tray.notify("AirPlay Bridge", i18n::tr(
-                                        "这台电脑在静音时无法采集声音，已自动恢复。"
-                                        "想让电脑自己不出声，请安装虚拟声卡（VB-Cable）。"));
-                                }
-                            }
-                        }
-                    } else {
-                        muteNoSignalPasses = 0;
-                    }
+                    // 无声只用于待机和诊断；不能据此判定静音破坏采集。
                 }
 
                 if (cNow != lastClipped) {
@@ -5174,11 +4985,6 @@ int main(int argc, char** argv) {
                 // 听到声音了：立刻醒回来。此时 running 是 false，
                 // 能过 tryConnect 的 guard。
                 sess.leaveStandby();
-                // 标记这条会话是「唤醒」来的 —— 用户正在播放。
-                // 静音检测据此把阈值降到 1 个窗口（见上面健康检查那段）。
-                // 必须在 tryConnect 之前置位：连接一旦建立，
-                // 第一个 5 秒窗口就会开始计。
-                sess.muteCheckFromWake.store(true);
                 tryConnect(true);   // skipResolve：不等那 2.5 秒扫描
                 lastCheck = now;
             } else {

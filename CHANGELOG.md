@@ -3,6 +3,28 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.6.4] - 2026-11-18
+
+**中文**
+
+### 修改
+
+- 点击面板外自动收起面板。
+
+### 修复
+
+- 修复启动后或暂停播放时误报静音无法采集，并擅自解除本机静音的问题。
+
+**English**
+
+### Changed
+
+- Hide the panel when clicking outside it.
+
+### Fixed
+
+- Prevent silence at startup or during a playback pause from falsely disabling local muting and reporting a capture failure.
+
 ## [1.6.3] - 2026-11-11
 
 **中文**

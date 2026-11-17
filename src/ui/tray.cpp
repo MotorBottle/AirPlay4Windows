@@ -139,6 +139,15 @@ TrayEventHandler g_handler;   // 单实例，够用
 
 } // namespace
 
+bool pointerOverTrayIcon() {
+    if (!g_haveNid) return false;
+    NOTIFYICONIDENTIFIER id{};
+    id.cbSize = sizeof(id);id.hWnd = g_lastNid.hWnd;id.uID = g_lastNid.uID;
+    RECT rect{};POINT cursor{};
+    return SUCCEEDED(Shell_NotifyIconGetRect(&id, &rect)) &&
+           GetCursorPos(&cursor) && PtInRect(&rect, cursor);
+}
+
 // 生成菜单项用的圆点位图。
 // 用传统单色位图（1bpp）而不是 32 位 DIB —— 后者 SetMenuItemBitmaps
 // 在某些 Windows 版本上不生效；单色位图是系统自己画对号用的格式，最稳。

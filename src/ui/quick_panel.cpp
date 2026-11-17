@@ -26,6 +26,7 @@ struct Panel {
     HWND owner = nullptr;
     int volume = 0, action = 0, liveVolume = -1, height = 0;
     bool close = false, dragging = false, moving = false;
+    bool externalFocus = false, commandActive = false, trayClickPending = false;
     POINT dragStart{}, windowStart{};
     float scale = 1;
     ULONGLONG lastVolumeAt = 0;
@@ -128,6 +129,13 @@ LRESULT CALLBACK panelProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
     case WM_ERASEBKGND:return 1;
     case WM_PAINT:{PAINTSTRUCT ps;HDC dc=BeginPaint(hwnd,&ps);paint(*p,dc);EndPaint(hwnd,&ps);return 0;}
     case WM_CLOSE:p->close=true;return 0;
+    case WM_ACTIVATEAPP:
+        p->externalFocus = !wp;
+        // 托盘先在按下时取得焦点，再于抬起时回调。保留面板到回调，
+        // 避免一次点击先自动关掉、随后又被 toggle 打开。
+        p->trayClickPending = !wp && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) &&
+                              pointerOverTrayIcon();
+        return 0;
     case WM_KEYDOWN:
         if(wp==VK_ESCAPE)p->close=true;
         else if(wp==VK_LEFT || wp==VK_DOWN){p->volume=std::max(0,p->volume-1);p->liveVolume=p->volume;}
@@ -218,10 +226,15 @@ void toggleQuickPanel(HWND owner,const std::vector<TrayMenuItem>& menu,int volum
 }
 void pumpQuickPanel() {
     if(!g_panel)return;
-    if(g_panel->close){closeQuickPanel();return;}
     auto& p=*g_panel;
     if(p.liveVolume>=0 && (!p.dragging || GetTickCount64()-p.lastVolumeAt>=70)) {
         int v=std::exchange(p.liveVolume,-1);p.lastVolumeAt=GetTickCount64();p.command(10000+v);
+    }
+    // 菜单和设置窗口的模态消息循环期间不销毁其宿主面板。
+    if (p.commandActive) return;
+    if (p.close || (p.externalFocus && !p.dragging && !p.moving &&
+                   !(p.trayClickPending && pointerOverTrayIcon()))) {
+        closeQuickPanel();return;
     }
     if(p.action) {
         int action=std::exchange(p.action,0);auto callback=p.command;HWND owner=p.owner;
@@ -232,11 +245,19 @@ void pumpQuickPanel() {
             // Keep the panel visible behind its settings menu. Commands may open
             // a modal slider, so use the copied callback and recheck the panel.
             const HWND panelHwnd=p.hwnd;
+            p.commandActive=true;
             callback(action);
             if(!g_panel || g_panel->hwnd!=panelHwnd)return;
+            p.commandActive=false;
+            // 菜单被点击外部取消时也收起；在本程序设置之间切换则保留。
+            DWORD foregroundProcess=0;
+            GetWindowThreadProcessId(GetForegroundWindow(),&foregroundProcess);
+            const bool returnToPanel=foregroundProcess==GetCurrentProcessId();
             RECT position{};GetWindowRect(panelHwnd,&position);
             g_reopenPosition={position.left,position.top};g_reopenAtSamePosition=true;
-            closeQuickPanel();PostMessageW(owner,WM_APP+1,0,WM_LBUTTONUP);return;
+            closeQuickPanel();
+            if(returnToPanel)PostMessageW(owner,WM_APP+1,0,WM_LBUTTONUP);
+            return;
         }
         // 从消息分发外执行命令，避免销毁窗口时回调重入。
         RECT position{};GetWindowRect(p.hwnd,&position);

@@ -1,6 +1,6 @@
 # AirPlay Bridge
 
-> Local custom test build 1.6.3, based on upstream 1.5.58; not an upstream release.
+> Local custom test build 1.6.4, based on upstream 1.5.58; not an upstream release.
 > The latency slider requests a playback buffer; it does not measure audible latency.
 
 <p align="center">
@@ -64,7 +64,7 @@ It mutes the local default output while connected and restores it on disconnect.
 
 ## 🖱 Usage
 
-Click the tray icon to open the dark panel; click again or press Esc to hide it.
+Click the tray icon to open the dark panel; click elsewhere, click the icon again, or press Esc to hide it.
 
 | Control | Action |
 |---|---|

@@ -42,6 +42,9 @@ struct QuickPanelStatus {
     int latency=0;
 };
 
+// 面板失焦时区分「点击自己的托盘图标」与「点击其他地方」。
+bool pointerOverTrayIcon();
+
 class TrayIcon {
 public:
     TrayIcon();
