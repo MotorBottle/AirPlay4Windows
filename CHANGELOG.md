@@ -3,6 +3,20 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.6.5] - 2026-11-20
+
+**中文**
+
+### 修改
+
+- 「关于」显示 AirPlay4Windows 仓库和 MotorBottle 的体验优化署名，并致谢原作者 RiverFlowsInUUU 和原项目 AirPlay Bridge。
+
+**English**
+
+### Changed
+
+- About shows the AirPlay4Windows repository and credits MotorBottle for usability improvements and RiverFlowsInUUU for the original AirPlay Bridge.
+
 ## [1.6.4] - 2026-11-18
 
 **中文**

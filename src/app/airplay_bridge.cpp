@@ -268,8 +268,9 @@ enum : int {
 #endif
 constexpr const char* kAppVersion = APP_VERSION;
 
-// 项目主页。「关于」里点一下跳这里。
-constexpr const char* kProjectUrl = "https://github.com/RiverFlowsInUUU/AirPlay-Bridge";
+// 「关于」分别显示本分支主页和原项目来源。
+constexpr const char* kProjectUrl = "https://github.com/MotorBottle/AirPlay4Windows";
+constexpr const char* kUpstreamProjectUrl = "https://github.com/RiverFlowsInUUU/AirPlay-Bridge";
 
 // ============================================================
 // 检查更新（托盘菜单）
@@ -4737,7 +4738,7 @@ int main(int argc, char** argv) {
                         // 检查更新并进来了：弹完窗**有意不 break**，让控制流落到
                         // 下面 MENU_CHECK_UPDATE 那段去做一次后台检查。
                         // 有新版本时它会再弹一个窗；已是最新则完全静默。
-                        std::string about = "AirPlay Bridge";
+                        std::string about = "AirPlay4Windows";
                         about += char(10); about += char(10);
                         about += std::string(i18n::tr("版本")) + " v" + kAppVersion;
                         // 已连接时补一行对端固件。
@@ -4750,7 +4751,13 @@ int main(int argc, char** argv) {
                                      " (" + sess.deviceFirmware + ")";
                         }
                         about += char(10); about += char(10);
+                        about += i18n::tr("UI 与使用体验优化：MotorBottle");
+                        about += char(10);
                         about += kProjectUrl;
+                        about += char(10); about += char(10);
+                        about += i18n::tr("感谢 RiverFlowsInUUU 开发原项目 AirPlay Bridge");
+                        about += char(10);
+                        about += kUpstreamProjectUrl;
                         {
                             const int need = MultiByteToWideChar(
                                 CP_UTF8, 0, about.c_str(), -1, nullptr, 0);
@@ -4758,7 +4765,7 @@ int main(int argc, char** argv) {
                             if (need > 1)
                                 MultiByteToWideChar(CP_UTF8, 0, about.c_str(), -1,
                                                     w.data(), need);
-                            const std::wstring aboutTitle = i18n::trw("关于");
+                            const std::wstring aboutTitle = i18n::trw("关于") + std::wstring(L" AirPlay4Windows");
                             promptUser(w.c_str(), aboutTitle.c_str(),
                                        MB_OK | MB_SETFOREGROUND);
                         }

@@ -129,6 +129,8 @@ const Entry kEntries[] = {
 
     // ── 「关于」弹窗（「关于」本身在菜单那节已有一条）──
     {"版本", "Version"},
+    {"UI 与使用体验优化：MotorBottle", "UI and usability improvements by MotorBottle"},
+    {"感谢 RiverFlowsInUUU 开发原项目 AirPlay Bridge", "Thanks to RiverFlowsInUUU for creating AirPlay Bridge"},
     // 「关于」里那行对端信息：`设备: 客厅 HomePod mini (27.2 (1005.13.2))`
     // ★ 不能只用「设备」—— 菜单里已有一条同名键（设备列表，英文是 Devices），
     //   查表取第一条，英文界面会显示成 "Devices:"。所以换个不撞的 key。
